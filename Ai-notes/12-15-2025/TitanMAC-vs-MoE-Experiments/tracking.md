@@ -1,7 +1,7 @@
 # TitanMAC vs MoE A/B Experiments
 
 **Created**: 2025-12-15
-**Status**: Planning
+**Status**: Implementation Complete - Ready for Execution
 **Goal**: Surgical A/B comparison of TitanMAC architecture and DeepNestedOptimizer against 5-dollar-llm baseline
 
 ---
@@ -172,11 +172,11 @@ def group_moe_params(model):
 - [ ] Document exact baseline configuration
 
 ### Phase 1: Experiment 1 Setup
-- [ ] Calculate TitanMAC param count with neural memory enabled
-- [ ] Create `configs/titanmac_config.py` with `TitanMACGPU24GBConfig`
-- [ ] Create `models/titanmac_wrapper.py` with MoE-compatible interface
-- [ ] Verify TitanMAC loads SmolLM tokenizer correctly
-- [ ] Create `train_titanmac.py` using train_moe infrastructure
+- [x] Calculate TitanMAC param count with neural memory enabled (~52M params)
+- [x] Create `configs/titanmac_config.py` with `TitanMACGPU24GBConfig`
+- [x] Create `models/titanmac_wrapper.py` with MoE-compatible interface
+- [x] Verify TitanMAC loads SmolLM tokenizer correctly
+- [x] Create `train_titanmac.py` using train_moe infrastructure
 
 ### Phase 2: Experiment 1 Execution
 - [ ] Run TitanMAC training with identical hyperparameters
@@ -185,11 +185,11 @@ def group_moe_params(model):
 - [ ] Compare metrics
 
 ### Phase 3: Experiment 2 Setup
-- [ ] Create `optimizers/nested_optimizer/` directory structure
-- [ ] Port DeepNestedOptimizer from TitanMAC
-- [ ] Port supporting files (controller, param_groups, meta_trainer)
-- [ ] Create `group_moe_params()` function
-- [ ] Create `train_moe_nested.py`
+- [x] Create `optimizers/nested_optimizer/` directory structure
+- [x] Port DeepNestedOptimizer from TitanMAC
+- [x] Port supporting files (controller, param_groups, meta_trainer)
+- [x] Create `group_moe_params()` function
+- [x] Create `train_moe_nested.py`
 
 ### Phase 4: Experiment 2 Execution
 - [ ] Run MoE with DeepNestedOptimizer (explicit mode)
@@ -220,6 +220,54 @@ def group_moe_params(model):
 4. **Param matching**: Not strict - let TitanMAC be larger due to memory module
 5. **Nested mode**: Explicit - more principled meta-learning
 6. **File organization**: Nested optimizer files in `optimizers/nested_optimizer/`
+
+---
+
+## Implementation Notes (2025-12-15)
+
+### Experiment 1: TitanMAC
+
+**Files Created**:
+- `models/titanmac_wrapper.py` (158 lines) - Wrapper with MoE-compatible interface
+- `configs/titanmac_config.py` (243 lines) - Three configs: base, GPU24GB, debug
+- `train_titanmac.py` (302 lines) - Training script
+
+**Key Implementation Details**:
+1. **AMP Disabled**: Neural memory's `torch.autograd.grad` calls fail with mixed precision. AMP is disabled by default.
+2. **Memory Compensation**: Smaller batch (4) + 4x gradient accumulation to match effective batch size
+3. **Gradient Checkpointing**: Enabled by default to reduce VRAM
+4. **Default Variant**: MAG (Memory as Gate) - more efficient than MAC
+5. **Param Count**: ~52M parameters
+
+**Usage**:
+```bash
+python train_titanmac.py                           # Full training
+python train_titanmac.py --debug --max_steps 10    # Quick test
+python train_titanmac.py --variant MAC             # Use MAC variant
+```
+
+### Experiment 2: Nested Optimizer
+
+**Files Created**:
+- `optimizers/nested_optimizer/__init__.py` (37 lines)
+- `optimizers/nested_optimizer/deep_nested_optimizer.py` (724 lines)
+- `optimizers/nested_optimizer/nested_controller.py` (119 lines)
+- `optimizers/nested_optimizer/param_groups.py` (172 lines)
+- `optimizers/nested_optimizer/meta_trainer.py` (352 lines)
+- `train_moe_nested.py` (702 lines)
+
+**Key Implementation Details**:
+1. **Parameter Grouping**: Core (2D matrices) vs Embed (embeddings, norms, router) - mirrors Muon/AdamW split
+2. **Explicit Mode**: Manual `meta_update()` on eval steps with validation batch
+3. **Batch Buffer**: Recent k training batches stored in deque for unrolled meta-learning
+4. **Extra Metrics**: Tracks lr_multipliers_core, lr_multipliers_embed, meta_losses
+
+**Usage**:
+```bash
+python train_moe_nested.py                                    # Full training
+python train_moe_nested.py --base_lr 3e-4 --meta_lr 1e-4     # Custom LRs
+python train_moe_nested.py --k_unroll 5                       # Unroll steps
+```
 
 ---
 
