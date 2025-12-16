@@ -246,7 +246,9 @@ def train_titanmac_nested(
         meta_lr=nested_config['meta_lr'],
         k_unroll=nested_config['k_unroll'],
         momentum_hidden_dim=nested_config['momentum_hidden_dim'],
+        momentum_num_layers=nested_config['momentum_num_layers'],
         controller_hidden_dim=nested_config['controller_hidden_dim'],
+        controller_num_layers=nested_config['controller_num_layers'],
         mode=nested_config['mode'],
         meta_update_freq=nested_config['meta_update_freq'],
         weight_decay=nested_config['weight_decay'],
@@ -578,7 +580,9 @@ def main():
     parser.add_argument("--meta_lr", type=float, default=1e-4, help="Meta learning rate")
     parser.add_argument("--k_unroll", type=int, default=5, help="K-step unrolling for meta-update")
     parser.add_argument("--momentum_hidden_dim", type=int, default=64, help="Hidden dimension for momentum network")
+    parser.add_argument("--momentum_num_layers", type=int, default=2, help="Number of layers in momentum network")
     parser.add_argument("--controller_hidden_dim", type=int, default=32, help="Hidden dimension for controller network")
+    parser.add_argument("--controller_num_layers", type=int, default=2, help="Number of layers in controller network")
     parser.add_argument("--use_unrolled", action="store_true",
                         help="Use full k-step unrolled meta-learning (WARNING: very memory intensive)")
     parser.add_argument("--variant", type=str, default="MAG", choices=["MAC", "MAG", "MAL"],
@@ -614,7 +618,9 @@ def main():
         'k_unroll': args.k_unroll,
         'use_unrolled': args.use_unrolled,  # False by default - SimplifiedMetaTrainer is cheaper
         'momentum_hidden_dim': args.momentum_hidden_dim,
+        'momentum_num_layers': args.momentum_num_layers,
         'controller_hidden_dim': args.controller_hidden_dim,
+        'controller_num_layers': args.controller_num_layers,
         'mode': 'explicit',
         'meta_update_freq': config.eval_every,
         'weight_decay': config.weight_decay,

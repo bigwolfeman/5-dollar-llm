@@ -282,7 +282,9 @@ class DeepNestedOptimizer:
         k_unroll: int = 5,
         cms_frequencies: Optional[List[int]] = None,
         momentum_hidden_dim: int = 64,
+        momentum_num_layers: int = 2,
         controller_hidden_dim: int = 32,
+        controller_num_layers: int = 2,
         use_gradient_checkpointing: bool = True,
         mode: str = 'simple',
         meta_update_freq: int = 100,
@@ -337,10 +339,12 @@ class DeepNestedOptimizer:
         # Learned components
         self.momentum_mlp = L2RegressionMomentum(
             hidden_dim=momentum_hidden_dim,
+            num_layers=momentum_num_layers,
         ).to(self.device)
 
         self.controller = NestedController(
             hidden_dim=controller_hidden_dim,
+            num_layers=controller_num_layers,
             n_groups=self.n_groups,
         ).to(self.device)
 
