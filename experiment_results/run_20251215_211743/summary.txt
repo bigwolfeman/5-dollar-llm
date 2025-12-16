@@ -1,0 +1,101 @@
+======================================================================
+EXPERIMENT RESULTS SUMMARY
+Generated: 2025-12-15T21:17:56.317167
+Max Steps: 8000
+======================================================================
+
+Experiment                Val Loss     Val Acc      Perplexity   VRAM (GB)    Status    
+-------------------------------------------------------------------------------------
+moe_baseline              N/A          N/A          N/A          N/A          failed    
+moe_nested                N/A          N/A          N/A          N/A          failed    
+titanmac                  N/A          N/A          N/A          N/A          failed    
+titanmac_nested           N/A          N/A          N/A          N/A          failed    
+
+======================================================================
+DETAILED RESULTS
+======================================================================
+
+
+--------------------------------------------------
+Experiment: moe_baseline
+Description: MoE + Muon (baseline)
+Status: failed
+Script: train_moe.py
+Arguments:
+  max_steps: 8000
+  experiment_name: moe_baseline_5000
+Runtime: 0.06 minutes
+Error (last 500 chars):
+eback (most recent call last):
+  File "/mnt/BigAssDrive/00projects/00DeepNet/111-5-dollar-llm/train_moe.py", line 210, in <module>
+    main()
+  File "/mnt/BigAssDrive/00projects/00DeepNet/111-5-dollar-llm/train_moe.py", line 161, in main
+    raise ValueError(msg)
+ValueError: Insufficient training data! Need 128000 sequences (max_steps=8000 * batch_size=16) but only have 15723 sequences. The model will overfit if data repeats. To fix: increase num_documents (currently 25000) or reduce max_steps.
+
+
+--------------------------------------------------
+Experiment: moe_nested
+Description: MoE + DeepNestedOptimizer
+Status: failed
+Script: train_moe_nested.py
+Arguments:
+  max_steps: 8000
+  experiment_name: moe_nested_5000
+  base_lr: 0.0004603431029542576
+  meta_lr: 9.56441656770269e-05
+  k_unroll: 1
+  momentum_hidden_dim: 128
+  controller_hidden_dim: 32
+Runtime: 0.05 minutes
+Error (last 500 chars):
+cent call last):
+  File "/mnt/BigAssDrive/00projects/00DeepNet/111-5-dollar-llm/train_moe_nested.py", line 726, in <module>
+    main()
+  File "/mnt/BigAssDrive/00projects/00DeepNet/111-5-dollar-llm/train_moe_nested.py", line 662, in main
+    raise ValueError(msg)
+ValueError: Insufficient training data! Need 128000 sequences (max_steps=8000 * batch_size=16) but only have 15723 sequences. The model will overfit if data repeats. To fix: increase num_documents (currently 25000) or reduce max_steps.
+
+
+--------------------------------------------------
+Experiment: titanmac
+Description: TitanMAC + Muon
+Status: failed
+Script: train_titanmac.py
+Arguments:
+  max_steps: 8000
+  experiment_name: titanmac_5000
+  muon_lr: 0.015533097160640025
+  adamw_lr: 0.007022787930614363
+Runtime: 0.05 minutes
+Error (last 500 chars):
+ost recent call last):
+  File "/mnt/BigAssDrive/00projects/00DeepNet/111-5-dollar-llm/train_titanmac.py", line 302, in <module>
+    main()
+  File "/mnt/BigAssDrive/00projects/00DeepNet/111-5-dollar-llm/train_titanmac.py", line 242, in main
+    raise ValueError(msg)
+ValueError: Insufficient training data! Need 32000 sequences (max_steps=8000 * batch_size=4) but only have 15723 sequences. The model will overfit if data repeats. To fix: increase num_documents (currently 25000) or reduce max_steps.
+
+
+--------------------------------------------------
+Experiment: titanmac_nested
+Description: TitanMAC + DeepNestedOptimizer
+Status: failed
+Script: train_titanmac_nested.py
+Arguments:
+  max_steps: 8000
+  experiment_name: titanmac_nested_5000
+  base_lr: 0.0004072398672148361
+  meta_lr: 9.089757036214503e-05
+  k_unroll: 5
+  momentum_hidden_dim: 64
+  controller_hidden_dim: 16
+Runtime: 0.05 minutes
+Error (last 500 chars):
+l last):
+  File "/mnt/BigAssDrive/00projects/00DeepNet/111-5-dollar-llm/train_titanmac_nested.py", line 710, in <module>
+    main()
+  File "/mnt/BigAssDrive/00projects/00DeepNet/111-5-dollar-llm/train_titanmac_nested.py", line 654, in main
+    raise ValueError(msg)
+ValueError: Insufficient training data! Need 32000 sequences (max_steps=8000 * batch_size=4) but only have 15723 sequences. The model will overfit if data repeats. To fix: increase num_documents (currently 25000) or reduce max_steps.
+

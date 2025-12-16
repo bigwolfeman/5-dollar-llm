@@ -139,11 +139,9 @@ class TitanMACGPU24GBConfig(TitanMACModelConfig):
     n_layers: int = 8
     d_ff: int = 2048
 
-    # Batch size: Reduced from 16 to 4, with 4x gradient accumulation
-    # This maintains effective batch size of 16 while fitting in memory
-    # without AMP (which is disabled for neural memory compatibility)
-    batch_size: int = 4
-    gradient_accumulation_steps: int = 4
+    # Batch size: Match MoE exactly for fair comparison
+    batch_size: int = 16
+    gradient_accumulation_steps: int = 1
 
     # Training parameters (optimized via sweep, same as MoE)
     muon_lr: float = 0.04
@@ -151,7 +149,7 @@ class TitanMACGPU24GBConfig(TitanMACModelConfig):
 
     # Data (matching MoE baseline)
     max_seq_len: int = 1024
-    num_documents: int = 25000
+    num_documents: int = 250000
 
     # Logging and training length
     log_milestones: Tuple[int, ...] = (100, 200, 300)

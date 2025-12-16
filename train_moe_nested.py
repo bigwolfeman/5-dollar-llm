@@ -354,8 +354,24 @@ def train_moe_nested(
             if (step + 1) % config.gradient_accumulation_steps == 0:
                 if config.use_amp:
                     scaler.unscale_(optimizer.base_optimizer)
-                    # Step with loss value for controller
-                    optimizer.step(loss_value=total_loss.item())
+
+                    # Check for inf/nan gradients before stepping (GradScaler safety)
+                    found_inf = False
+                    for group in optimizer.base_optimizer.param_groups:
+                        for p in group['params']:
+                            if p.grad is not None and (torch.isnan(p.grad).any() or torch.isinf(p.grad).any()):
+                                found_inf = True
+                                break
+                        if found_inf:
+                            break
+
+                    if not found_inf:
+                        # Step with loss value for controller
+                        optimizer.step(loss_value=total_loss.item())
+                    else:
+                        # Skip step, just zero grads (mimics scaler.step() behavior)
+                        optimizer.zero_grad()
+
                     scaler.update()
                 else:
                     # Step with loss value for controller
