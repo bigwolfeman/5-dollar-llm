@@ -1,3 +1,6 @@
+fuzz_results/
+Ai-notes/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -229,3 +232,5 @@ processed_data/
 # Keep all JSON files in baselines folder
 !baselines/*.json
 !baselines/**/*.json
+Ai-notes/12-15-2025/TitanMAC-vs-MoE-Experiments/tracking.md
+fuzz_results/moe_nested/study.db

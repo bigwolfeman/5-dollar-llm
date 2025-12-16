@@ -8,12 +8,13 @@
 
 ## Overview
 
-Two experiments to evaluate your TitanMAC work against the 5-dollar-llm MoE baseline:
+Three experiments to evaluate your TitanMAC work against the 5-dollar-llm MoE baseline:
 
 | Experiment | Variable Tested | Held Constant |
 |------------|-----------------|---------------|
 | **Exp 1** | Architecture (TitanMAC vs MoE) | Optimizer (Muon+AdamW), Data, Training Pipeline |
 | **Exp 2** | Optimizer (DeepNested vs Muon) | Architecture (MoE), Data, Training Pipeline |
+| **Exp 3** | Both (TitanMAC + DeepNested) | Data, Training Pipeline |
 
 ---
 
@@ -164,6 +165,32 @@ def group_moe_params(model):
 
 ---
 
+## Experiment 3: TitanMAC + DeepNestedOptimizer
+
+**Goal**: Test if the combination of TitanMAC architecture with DeepNestedOptimizer provides synergistic benefits.
+
+**Hypothesis**: The nested optimizer's learned momentum and LR scheduling may work particularly well with TitanMAC's neural memory updates, since both involve learned optimization dynamics.
+
+### Configuration
+
+- **Model**: TitanMAC with neural memory + sliding window attention
+- **Optimizer**: DeepNestedOptimizer (explicit mode, SimplifiedMetaTrainer)
+- **Data**: Same smollm-corpus dataset
+
+### Files to Create
+
+```
+train_titanmac_nested.py    # TitanMAC + DeepNestedOptimizer
+```
+
+### Key Integration Points
+
+1. TitanMAC wrapper already returns `(logits, aux_loss)` - works with nested optimizer
+2. Param grouping needs adaptation for TitanMAC (different from MoE)
+3. Memory loss should be included in total loss for meta-learning
+
+---
+
 ## Implementation Checklist
 
 ### Phase 0: Baseline
@@ -197,18 +224,28 @@ def group_moe_params(model):
 - [ ] Monitor: val_loss, val_accuracy, perplexity, lr_multipliers
 - [ ] Compare metrics to baseline
 
+### Phase 5: Experiment 3 Setup
+- [x] Create `train_titanmac_nested.py` combining TitanMAC + DeepNestedOptimizer
+- [x] Adapt param grouping for TitanMAC architecture (`group_titanmac_params()`)
+- [x] Test that memory_loss flows through meta-learning
+
+### Phase 6: Experiment 3 Execution
+- [ ] Run TitanMAC with DeepNestedOptimizer (explicit mode)
+- [ ] Monitor: val_loss, val_accuracy, perplexity, memory_loss, lr_multipliers
+- [ ] Compare to all other experiments
+
 ---
 
 ## Metrics Comparison Template
 
-| Metric | MoE Baseline | TitanMAC (Exp1) | MoE+Nested (Exp2) |
-|--------|--------------|-----------------|-------------------|
-| Val Loss | 4.0977 | TBD | TBD |
-| Val Accuracy | 31.90% | TBD | TBD |
-| Perplexity | 60.20 | TBD | TBD |
-| Aux Loss | (load_bal) | (memory) | (load_bal) |
-| Training Time | TBD | TBD | TBD |
-| Peak VRAM | TBD | TBD | TBD |
+| Metric | MoE Baseline | TitanMAC (Exp1) | MoE+Nested (Exp2) | TitanMAC+Nested (Exp3) |
+|--------|--------------|-----------------|-------------------|------------------------|
+| Val Loss | 4.0977 | TBD | TBD | TBD |
+| Val Accuracy | 31.90% | TBD | TBD | TBD |
+| Perplexity | 60.20 | TBD | TBD | TBD |
+| Aux Loss | (load_bal) | (memory) | (load_bal) | (memory) |
+| Training Time | TBD | TBD | TBD | TBD |
+| Peak VRAM | TBD | TBD | TBD | TBD |
 
 ---
 
@@ -264,9 +301,31 @@ python train_titanmac.py --variant MAC             # Use MAC variant
 
 **Usage**:
 ```bash
-python train_moe_nested.py                                    # Full training
+python train_moe_nested.py                                    # Full training (SimplifiedMetaTrainer)
 python train_moe_nested.py --base_lr 3e-4 --meta_lr 1e-4     # Custom LRs
-python train_moe_nested.py --k_unroll 5                       # Unroll steps
+python train_moe_nested.py --use_unrolled                     # Use UnrolledMetaTrainer (WARNING: ~3x VRAM)
+```
+
+**OOM Fix (2025-12-15)**: Initial run OOMed at step 40 during `meta_update()`. Root cause: `UnrolledMetaTrainer` clones all 167M params and runs k=5 forward/backward passes with `create_graph=True`, causing ~3x memory usage. Fix: Default to `SimplifiedMetaTrainer` (use `--use_unrolled` flag to enable full unrolling if you have enough VRAM).
+
+### Experiment 3: TitanMAC + Nested (IMPLEMENTED)
+
+**Files Created**:
+- `train_titanmac_nested.py` (590 lines) - Training script combining TitanMAC + DeepNestedOptimizer
+- `optimizers/nested_optimizer/param_groups.py` - Added `group_titanmac_params()` function
+
+**Key Implementation Details**:
+1. **Param Grouping**: `group_titanmac_params()` separates TitanMAC params into core (2D matrices) vs embed (embeddings, norms, persistent tokens)
+2. **Memory Loss**: Included in total loss for both training and meta-learning
+3. **AMP Disabled**: Required for neural memory compatibility
+4. **SimplifiedMetaTrainer**: Default (use `--use_unrolled` for full k-step unrolling)
+
+**Usage**:
+```bash
+python train_titanmac_nested.py                                    # Full training
+python train_titanmac_nested.py --debug --max_steps 10             # Quick test
+python train_titanmac_nested.py --variant MAC                      # Use MAC variant
+python train_titanmac_nested.py --base_lr 3e-4 --meta_lr 1e-4     # Custom LRs
 ```
 
 ---

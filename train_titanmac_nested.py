@@ -1,20 +1,23 @@
 """
-Training script for MoE model with DeepNestedOptimizer.
+Training script for TitanMAC model with DeepNestedOptimizer.
 
-This is Experiment 2 of the A/B comparison:
-- Experiment 1 (baseline): train_moe.py with Muon+AdamW
-- Experiment 2 (this file): train_moe_nested.py with DeepNestedOptimizer
+This is Experiment 3 of the A/B comparison:
+- Experiment 1: TitanMAC with Muon+AdamW (architecture test)
+- Experiment 2: MoE with DeepNestedOptimizer (optimizer test)
+- Experiment 3 (this file): TitanMAC with DeepNestedOptimizer (both)
 
-The nested optimizer uses explicit mode with manual meta_update calls
-aligned with evaluation steps.
+Hypothesis: The nested optimizer's learned momentum and LR scheduling may work
+particularly well with TitanMAC's neural memory updates, since both involve
+learned optimization dynamics.
 
 Usage:
-    python train_moe_nested.py --experiment_name nested_exp1
+    python train_titanmac_nested.py --experiment_name titanmac_nested_exp1
 
-Key differences from baseline:
-- Single optimizer (DeepNestedOptimizer) instead of Muon+AdamW split
-- Meta-updates during evaluation steps using buffered training batches
-- Learned LR multipliers per parameter group
+Key differences from other experiments:
+- TitanMAC architecture (sliding window attention + neural memory)
+- DeepNestedOptimizer instead of Muon+AdamW
+- AMP disabled (required for neural memory gradient updates)
+- Uses SimplifiedMetaTrainer by default (memory efficient)
 """
 
 import argparse
@@ -28,7 +31,6 @@ import logging
 from collections import deque
 from pathlib import Path
 from torch.utils.data import DataLoader
-from torch.amp import autocast, GradScaler
 from tqdm import tqdm
 from typing import Optional, Dict, Any
 import matplotlib.pyplot as plt
@@ -36,13 +38,16 @@ import matplotlib.pyplot as plt
 # Fix tokenizer parallelism warning when using DataLoader workers
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-from configs.moe_config import MoEModelConfig, GPU24GBMoEModelConfig
+from configs.titanmac_config import TitanMACModelConfig, TitanMACGPU24GBConfig, DebugTitanMACConfig
 from configs.dataset_config import DataConfig
-from models.moe_llm import MoEMinimalLLM
-from optimizers.nested_optimizer import DeepNestedOptimizer, group_moe_params
+from models.titanmac_wrapper import TitanMACWrapper, create_titanmac_model
+from optimizers.nested_optimizer import DeepNestedOptimizer, group_titanmac_params
 from training.evaluation import evaluate_model
 from utils.helpers import set_seed
 from utils.logger import setup_logging
+
+
+logger = logging.getLogger(__name__)
 
 
 def print_system_info():
@@ -127,7 +132,7 @@ def prepare_datasets(data_cfg, tokenizer, cache_dir="./processed_data"):
     return train_ds, val_ds
 
 
-def create_loss_fn(config: MoEModelConfig):
+def create_loss_fn(config):
     """
     Create a loss function compatible with meta_update interface.
 
@@ -167,8 +172,8 @@ def create_loss_fn(config: MoEModelConfig):
     return loss_fn
 
 
-def train_moe_nested(
-    config: MoEModelConfig,
+def train_titanmac_nested(
+    config: TitanMACModelConfig,
     train_loader: DataLoader,
     val_loader: DataLoader,
     output_dir: Optional[str] = None,
@@ -176,10 +181,10 @@ def train_moe_nested(
     nested_config: Optional[Dict[str, Any]] = None,
 ):
     """
-    Train MoE model with DeepNestedOptimizer.
+    Train TitanMAC model with DeepNestedOptimizer.
 
     Args:
-        config: Model configuration
+        config: TitanMAC model configuration
         train_loader: Training data loader
         val_loader: Validation data loader
         output_dir: Optional directory to save outputs
@@ -197,6 +202,7 @@ def train_moe_nested(
             'base_lr': 3e-4,
             'meta_lr': 1e-4,
             'k_unroll': 5,
+            'use_unrolled': False,  # Use SimplifiedMetaTrainer by default
             'momentum_hidden_dim': 64,
             'controller_hidden_dim': 32,
             'mode': 'explicit',
@@ -205,20 +211,27 @@ def train_moe_nested(
             'max_grad_norm': config.grad_clip,
         }
 
-    print(f"\n[Nested Optimizer] Training MoE model with DeepNestedOptimizer")
+    print(f"\n[Nested Optimizer] Training TitanMAC model with DeepNestedOptimizer")
     print(f"  Base LR: {nested_config['base_lr']}")
     print(f"  Meta LR: {nested_config['meta_lr']}")
     print(f"  K-unroll: {nested_config['k_unroll']}")
     print(f"  Mode: {nested_config['mode']}")
+    meta_mode = "UnrolledMetaTrainer" if nested_config.get('use_unrolled', False) else "SimplifiedMetaTrainer"
+    print(f"  Meta-learning: {meta_mode}")
 
     # Initialize model
     set_seed(42)
-    model = MoEMinimalLLM(config)
+    model = create_titanmac_model(config)
     model = model.to(device)
+
+    # Enable gradient checkpointing if configured
+    if getattr(config, 'use_gradient_checkpointing', False):
+        model.enable_gradient_checkpointing()
+        print("  Gradient checkpointing: enabled")
 
     # Count parameters
     total_params = sum(p.numel() for p in model.parameters())
-    core_params, embed_params = group_moe_params(model)
+    core_params, embed_params = group_titanmac_params(model)
     core_numel = sum(p.numel() for p in core_params)
     embed_numel = sum(p.numel() for p in embed_params)
 
@@ -226,7 +239,7 @@ def train_moe_nested(
     print(f"  Core parameters: {core_numel:,}")
     print(f"  Embed parameters: {embed_numel:,}")
 
-    # Create nested optimizer
+    # Create nested optimizer with TitanMAC param groups
     optimizer = DeepNestedOptimizer(
         model=model,
         base_lr=nested_config['base_lr'],
@@ -247,8 +260,11 @@ def train_moe_nested(
     k_unroll = nested_config['k_unroll']
     train_batch_buffer = deque(maxlen=k_unroll + 2)
 
-    # Mixed precision
-    scaler = GradScaler() if config.use_amp else None
+    # NOTE: AMP is disabled for TitanMAC due to neural memory gradient issues
+    # The neural memory uses torch.autograd.grad which fails with mixed precision
+    use_amp = False
+    if getattr(config, 'use_amp', False):
+        print("  WARNING: AMP disabled for TitanMAC (neural memory compatibility)")
 
     # Reset peak memory stats for accurate tracking
     if torch.cuda.is_available():
@@ -272,7 +288,7 @@ def train_moe_nested(
     # Training loop
     model.train()
     step = 0
-    desc = f"Training {experiment_name}" if experiment_name else "Training (Nested)"
+    desc = f"Training {experiment_name}" if experiment_name else "Training (TitanMAC+Nested)"
     pbar = tqdm(total=config.max_steps, desc=desc)
 
     # Get a validation batch iterator for meta-updates
@@ -314,52 +330,28 @@ def train_moe_nested(
             # Store batch in buffer for meta-updates
             train_batch_buffer.append({'input_ids': x, 'labels': y})
 
-            # Forward pass
+            # Forward pass (no AMP for TitanMAC)
             optimizer.zero_grad()
 
-            if config.use_amp:
-                with autocast('cuda', dtype=torch.float16):
-                    logits, aux_loss = model(x, return_aux_loss=True)
-                    shift_logits = logits[:, :-1, :].contiguous()
-                    shift_labels = y[:, 1:].contiguous()
-                    ce_loss = F.cross_entropy(
-                        shift_logits.view(-1, config.vocab_size),
-                        shift_labels.view(-1)
-                    )
+            logits, aux_loss = model(x, return_aux_loss=True)
+            shift_logits = logits[:, :-1, :].contiguous()
+            shift_labels = y[:, 1:].contiguous()
+            ce_loss = F.cross_entropy(
+                shift_logits.view(-1, config.vocab_size),
+                shift_labels.view(-1)
+            )
 
-                    total_loss = ce_loss
-                    if aux_loss is not None:
-                        total_loss = total_loss + aux_loss
+            total_loss = ce_loss
+            if aux_loss is not None:
+                total_loss = total_loss + aux_loss
 
-                    loss = total_loss / config.gradient_accumulation_steps
-
-                scaler.scale(loss).backward()
-            else:
-                logits, aux_loss = model(x, return_aux_loss=True)
-                shift_logits = logits[:, :-1, :].contiguous()
-                shift_labels = y[:, 1:].contiguous()
-                ce_loss = F.cross_entropy(
-                    shift_logits.view(-1, config.vocab_size),
-                    shift_labels.view(-1)
-                )
-
-                total_loss = ce_loss
-                if aux_loss is not None:
-                    total_loss = total_loss + aux_loss
-
-                loss = total_loss / config.gradient_accumulation_steps
-                loss.backward()
+            loss = total_loss / config.gradient_accumulation_steps
+            loss.backward()
 
             # Optimizer step
             if (step + 1) % config.gradient_accumulation_steps == 0:
-                if config.use_amp:
-                    scaler.unscale_(optimizer.base_optimizer)
-                    # Step with loss value for controller
-                    optimizer.step(loss_value=total_loss.item())
-                    scaler.update()
-                else:
-                    # Step with loss value for controller
-                    optimizer.step(loss_value=total_loss.item())
+                # Step with loss value for controller
+                optimizer.step(loss_value=total_loss.item())
 
             # Logging
             if step % 100 == 0:
@@ -372,11 +364,11 @@ def train_moe_nested(
 
                 pbar.set_postfix({
                     'loss': f'{current_loss:.4f}',
-                    'aux': f'{aux_loss.item() if aux_loss is not None else 0:.4f}',
+                    'mem': f'{aux_loss.item() if aux_loss is not None else 0:.4f}',
                     'acc': f'{accuracy:.3f}',
                     'ppl': f'{perplexity:.1f}',
-                    'lr_core': f'{lr_mults[0].item():.3f}',
-                    'lr_embed': f'{lr_mults[1].item():.3f}',
+                    'lr_c': f'{lr_mults[0].item():.3f}',
+                    'lr_e': f'{lr_mults[1].item():.3f}',
                 })
 
             # Evaluation and meta-update
@@ -405,8 +397,8 @@ def train_moe_nested(
                     train_batches = list(train_batch_buffer)[:k_unroll]
 
                     # Perform meta-update
-                    # Note: use_unrolled=True is VERY memory intensive (clones all params k times)
-                    # For large models, use_unrolled=False uses SimplifiedMetaTrainer instead
+                    # Note: use_unrolled=True is VERY memory intensive
+                    # For TitanMAC, we use SimplifiedMetaTrainer by default
                     optimizer.meta_update(
                         val_batch=val_batch_dict,
                         train_batches=train_batches,
@@ -427,7 +419,7 @@ def train_moe_nested(
                 metrics_history['meta_losses'].append(optimizer.last_meta_loss if optimizer.last_meta_loss else 0.0)
 
                 print(f"\nStep {step}: Val Loss: {eval_metrics['val_loss']:.4f}, "
-                      f"Val Aux Loss: {eval_metrics['val_aux_loss']:.4f}, "
+                      f"Val Mem Loss: {eval_metrics['val_aux_loss']:.4f}, "
                       f"Val Acc: {eval_metrics['val_accuracy']:.4f}, "
                       f"Val PPL: {eval_metrics['val_perplexity']:.2f}, "
                       f"LR mult [core: {lr_mults[0].item():.3f}, embed: {lr_mults[1].item():.3f}]")
@@ -468,22 +460,31 @@ def train_moe_nested(
     # Add to final metrics
     final_eval['peak_vram_gb'] = peak_vram_gb
 
-    print(f"\n[Nested Optimizer] Final Results:")
+    print(f"\n[TitanMAC + Nested] Final Results:")
     print(f"   Val Loss: {final_eval['val_loss']:.4f}")
-    print(f"   Val Aux Loss: {final_eval['val_aux_loss']:.4f}")
+    print(f"   Val Memory Loss: {final_eval['val_aux_loss']:.4f}")
     print(f"   Val Accuracy: {final_eval['val_accuracy']:.4f}")
     print(f"   Val Perplexity: {final_eval['val_perplexity']:.2f}")
     print(f"   Peak VRAM: {peak_vram_gb:.2f} GB")
-    print(f"   Total Time: {total_time:.2f} min")
     print(f"   Final LR multipliers: [core: {lr_mults[0].item():.3f}, embed: {lr_mults[1].item():.3f}]")
+    print(f"   Total time: {total_time:.1f} min")
 
-    # Save outputs if directory specified
+    # Save checkpoint
     if output_dir:
-        output_path = Path(output_dir)
-        output_path.mkdir(parents=True, exist_ok=True)
+        os.makedirs(output_dir, exist_ok=True)
+        checkpoint_path = os.path.join(output_dir, "checkpoint.pt")
+        torch.save({
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'config': vars(config),
+            'nested_config': nested_config,
+            'metrics': final_eval,
+            'metrics_history': metrics_history,
+        }, checkpoint_path)
+        print(f"Saved checkpoint to {checkpoint_path}")
 
-        # Save metrics
-        metrics_file = output_path / "metrics.json"
+        # Save metrics as JSON (including peak VRAM)
+        metrics_path = os.path.join(output_dir, "metrics.json")
         metrics_data = {
             'final_metrics': final_eval,
             'total_time_minutes': total_time,
@@ -491,126 +492,117 @@ def train_moe_nested(
             'actual_steps': step,
             'history': metrics_history,
             'nested_config': nested_config,
+            'model_type': 'TitanMAC',
             'optimizer_type': 'DeepNestedOptimizer',
         }
-
-        with open(metrics_file, 'w') as f:
+        with open(metrics_path, 'w') as f:
             json.dump(metrics_data, f, indent=2)
-        print(f"   Metrics saved to {metrics_file}")
+        print(f"Saved metrics to {metrics_path}")
 
-        # Plot metrics
-        plot_nested_training_metrics(metrics_history, output_path)
-
-        # Save model checkpoint
-        checkpoint_path = output_path / "model.pt"
-        torch.save({
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'config': config,
-            'nested_config': nested_config,
-            'metrics': final_eval,
-            'step': step,
-        }, checkpoint_path)
-        print(f"   Model saved to {checkpoint_path}")
+        # Plot training curves
+        plot_path = os.path.join(output_dir, "training_curves.png")
+        plot_training_curves(metrics_history, plot_path)
+        print(f"Saved training curves to {plot_path}")
 
     return model, final_eval, metrics_history
 
 
-def plot_nested_training_metrics(metrics_history: Dict, output_path: Path):
-    """Plot training metrics for nested optimizer experiment."""
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-    fig.suptitle('Nested Optimizer Training Metrics', fontsize=14, fontweight='bold')
+def plot_training_curves(metrics_history, save_path):
+    """Plot and save training curves."""
+    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
 
-    # Plot 1: Val Loss vs Time
-    ax = axes[0, 0]
-    ax.plot(metrics_history['elapsed_times'], metrics_history['val_losses'], 'b-o', linewidth=2, markersize=4)
-    ax.set_xlabel('Time (minutes)')
-    ax.set_ylabel('Validation Loss')
-    ax.set_title('Validation Loss vs Time')
-    ax.grid(True, alpha=0.3)
-    if metrics_history['val_losses']:
-        best_idx = metrics_history['val_losses'].index(min(metrics_history['val_losses']))
-        ax.plot(metrics_history['elapsed_times'][best_idx],
-                metrics_history['val_losses'][best_idx],
-                'r*', markersize=15, label=f'Best: {metrics_history["val_losses"][best_idx]:.4f}')
-        ax.legend()
+    # Val Loss
+    axes[0, 0].plot(metrics_history['steps'], metrics_history['val_losses'], 'b-', label='Val Loss')
+    axes[0, 0].set_xlabel('Step')
+    axes[0, 0].set_ylabel('Loss')
+    axes[0, 0].set_title('Validation Loss')
+    axes[0, 0].legend()
+    axes[0, 0].grid(True)
 
-    # Plot 2: Val Loss vs Steps
-    ax = axes[0, 1]
-    ax.plot(metrics_history['steps'], metrics_history['val_losses'], 'g-o', linewidth=2, markersize=4)
-    ax.set_xlabel('Training Steps')
-    ax.set_ylabel('Validation Loss')
-    ax.set_title('Validation Loss vs Steps')
-    ax.grid(True, alpha=0.3)
+    # Val Accuracy
+    axes[0, 1].plot(metrics_history['steps'], metrics_history['val_accuracies'], 'g-', label='Val Acc')
+    axes[0, 1].set_xlabel('Step')
+    axes[0, 1].set_ylabel('Accuracy')
+    axes[0, 1].set_title('Validation Accuracy')
+    axes[0, 1].legend()
+    axes[0, 1].grid(True)
 
-    # Plot 3: Val Accuracy vs Steps
-    ax = axes[0, 2]
-    ax.plot(metrics_history['steps'], metrics_history['val_accuracies'], 'purple', linewidth=2, marker='o', markersize=4)
-    ax.set_xlabel('Training Steps')
-    ax.set_ylabel('Validation Accuracy')
-    ax.set_title('Validation Accuracy vs Steps')
-    ax.grid(True, alpha=0.3)
+    # Val Perplexity
+    axes[0, 2].plot(metrics_history['steps'], metrics_history['val_perplexities'], 'r-', label='Val PPL')
+    axes[0, 2].set_xlabel('Step')
+    axes[0, 2].set_ylabel('Perplexity')
+    axes[0, 2].set_title('Validation Perplexity')
+    axes[0, 2].legend()
+    axes[0, 2].grid(True)
 
-    # Plot 4: LR Multipliers vs Steps
-    ax = axes[1, 0]
-    ax.plot(metrics_history['steps'], metrics_history['lr_multipliers_core'], 'b-', linewidth=2, label='Core')
-    ax.plot(metrics_history['steps'], metrics_history['lr_multipliers_embed'], 'r-', linewidth=2, label='Embed')
-    ax.set_xlabel('Training Steps')
-    ax.set_ylabel('LR Multiplier')
-    ax.set_title('Learned LR Multipliers')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    ax.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5)
+    # Memory Loss (aux loss)
+    axes[1, 0].plot(metrics_history['steps'], metrics_history['val_aux_losses'], 'm-', label='Memory Loss')
+    axes[1, 0].set_xlabel('Step')
+    axes[1, 0].set_ylabel('Loss')
+    axes[1, 0].set_title('Memory Loss')
+    axes[1, 0].legend()
+    axes[1, 0].grid(True)
 
-    # Plot 5: Effective Learning Rate vs Steps
-    ax = axes[1, 1]
-    ax.plot(metrics_history['steps'], metrics_history['learning_rates'], 'orange', linewidth=2)
-    ax.set_xlabel('Training Steps')
-    ax.set_ylabel('Effective Learning Rate (Core)')
-    ax.set_title('Effective Learning Rate')
-    ax.grid(True, alpha=0.3)
+    # LR Multipliers
+    axes[1, 1].plot(metrics_history['steps'], metrics_history['lr_multipliers_core'], 'b-', label='Core LR mult')
+    axes[1, 1].plot(metrics_history['steps'], metrics_history['lr_multipliers_embed'], 'r-', label='Embed LR mult')
+    axes[1, 1].set_xlabel('Step')
+    axes[1, 1].set_ylabel('LR Multiplier')
+    axes[1, 1].set_title('LR Multipliers')
+    axes[1, 1].legend()
+    axes[1, 1].grid(True)
 
-    # Plot 6: Meta Loss vs Steps
-    ax = axes[1, 2]
-    ax.plot(metrics_history['steps'], metrics_history['meta_losses'], 'cyan', linewidth=2)
-    ax.set_xlabel('Training Steps')
-    ax.set_ylabel('Meta Loss')
-    ax.set_title('Meta-Learning Loss')
-    ax.grid(True, alpha=0.3)
+    # Meta Loss
+    axes[1, 2].plot(metrics_history['steps'], metrics_history['meta_losses'], 'c-', label='Meta Loss')
+    axes[1, 2].set_xlabel('Step')
+    axes[1, 2].set_ylabel('Loss')
+    axes[1, 2].set_title('Meta-Learning Loss')
+    axes[1, 2].legend()
+    axes[1, 2].grid(True)
 
     plt.tight_layout()
-    plot_path = output_path / "metrics_plot.png"
-    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    plt.savefig(save_path, dpi=150)
     plt.close()
-    print(f"   Plots saved to {plot_path}")
 
 
 def main():
+    """Main entry point for TitanMAC + Nested Optimizer training."""
     logger = setup_logging(log_dir="./logs")
-    logger.info("Starting MoE training with DeepNestedOptimizer")
+    logger.info("Starting TitanMAC + Nested Optimizer training")
 
     print_system_info()
     set_seed(42)
 
-    parser = argparse.ArgumentParser(description="Train MoE Model with Nested Optimizer")
+    parser = argparse.ArgumentParser(description="Train TitanMAC with DeepNestedOptimizer")
     parser.add_argument("--base_lr", type=float, default=3e-4, help="Base learning rate")
     parser.add_argument("--meta_lr", type=float, default=1e-4, help="Meta learning rate")
     parser.add_argument("--k_unroll", type=int, default=5, help="K-step unrolling for meta-update")
     parser.add_argument("--momentum_hidden_dim", type=int, default=64, help="Hidden dimension for momentum network")
     parser.add_argument("--controller_hidden_dim", type=int, default=32, help="Hidden dimension for controller network")
     parser.add_argument("--use_unrolled", action="store_true",
-                        help="Use full k-step unrolled meta-learning (WARNING: very memory intensive, ~3x VRAM)")
+                        help="Use full k-step unrolled meta-learning (WARNING: very memory intensive)")
+    parser.add_argument("--variant", type=str, default="MAG", choices=["MAC", "MAG", "MAL"],
+                        help="TitanMAC variant to use")
     parser.add_argument("--steps", "--max_steps", type=int, dest="max_steps", help="Override max_steps")
-    parser.add_argument("--experiment_name", type=str, default="moe_nested", help="Name of the experiment")
+    parser.add_argument("--experiment_name", type=str, default="titanmac_nested", help="Name of the experiment")
     parser.add_argument("--output_dir", type=str, default="./checkpoints", help="Output directory")
+    parser.add_argument("--debug", action="store_true", help="Use debug config for quick testing")
     args = parser.parse_args()
 
-    # Use GPU24GB config for smaller GPU
-    config = GPU24GBMoEModelConfig()
+    # Select config based on debug flag
+    if args.debug:
+        config = DebugTitanMACConfig()
+        print("Using DEBUG config (tiny model for testing)")
+    else:
+        config = TitanMACGPU24GBConfig()
+        print("Using GPU24GB config")
 
     # Override config with args
     if args.max_steps is not None:
         config.max_steps = args.max_steps
+
+    if args.variant:
+        config.titans_variant = args.variant
 
     experiment_name = args.experiment_name
     output_dir = os.path.join(args.output_dir, experiment_name)
@@ -620,7 +612,7 @@ def main():
         'base_lr': args.base_lr,
         'meta_lr': args.meta_lr,
         'k_unroll': args.k_unroll,
-        'use_unrolled': args.use_unrolled,  # False by default - SimplifiedMetaTrainer is much cheaper
+        'use_unrolled': args.use_unrolled,  # False by default - SimplifiedMetaTrainer is cheaper
         'momentum_hidden_dim': args.momentum_hidden_dim,
         'controller_hidden_dim': args.controller_hidden_dim,
         'mode': 'explicit',
@@ -670,12 +662,14 @@ def main():
     train_loader = DataLoader(train_ds, shuffle=True, **loader_args)
     val_loader = DataLoader(val_ds, shuffle=False, **loader_args)
 
-    print("\nModel configuration")
+    print("\nModel configuration (TitanMAC)")
     print("-" * 70)
     print(f"d_model: {config.d_model}, layers: {config.n_layers}, heads: {config.n_heads}")
     print(f"ff dim: {config.d_ff}")
-    print(f"experts: {config.num_experts}, top-k: {config.expert_top_k}")
+    print(f"window_size: {config.window_size}, n_persistent: {config.n_persistent}")
+    print(f"variant: {config.titans_variant}, neural_memory: {config.use_neural_memory}")
     print(f"steps: {config.max_steps}, batch size: {config.batch_size}")
+    print(f"gradient_accumulation: {config.gradient_accumulation_steps}")
     print(f"vocab size: {config.vocab_size}")
     print(f"\nNested Optimizer configuration")
     print("-" * 70)
@@ -684,14 +678,14 @@ def main():
     meta_mode = "UnrolledMetaTrainer (memory intensive)" if nested_config['use_unrolled'] else "SimplifiedMetaTrainer (memory efficient)"
     print(f"meta-learning: {meta_mode}")
     print()
-    logger.info(f"Model configuration: {vars(config)}")
+    logger.info(f"TitanMAC configuration: {vars(config)}")
     logger.info(f"Nested optimizer configuration: {nested_config}")
 
-    print("Starting training with DeepNestedOptimizer...")
+    print("Starting training with TitanMAC + DeepNestedOptimizer...")
     print("-" * 70)
     start = time.time()
 
-    model, metrics, history = train_moe_nested(
+    model, metrics, history = train_titanmac_nested(
         config, train_loader, val_loader,
         output_dir=output_dir,
         experiment_name=experiment_name,
@@ -699,27 +693,17 @@ def main():
     )
 
     elapsed = (time.time() - start) / 60
-    logger.info("Training complete")
+    print(f"\nTotal training time: {elapsed:.1f} min")
 
-    print("\nResults")
-    print("-" * 70)
-    print(f"Training time: {elapsed:.2f} min")
-    print(f"Val loss:       {metrics['val_loss']:.4f}")
-    print(f"Val accuracy:   {metrics['val_accuracy']:.4f}")
-    print(f"Val perplexity: {metrics['val_perplexity']:.2f}")
-    logger.info(f"Final metrics: {metrics}")
-
-    ckpt_path = os.path.join(output_dir, "final_model.pt")
-    os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
-    torch.save(
-        {"model_state_dict": model.state_dict(),
-         "config": config,
-         "nested_config": nested_config,
-         "metrics": metrics},
-        ckpt_path,
-    )
-    print(f"Model checkpoint saved to {ckpt_path}")
-    logger.info(f"Model saved to {ckpt_path}")
+    # Print final summary
+    print("\n" + "=" * 70)
+    print("EXPERIMENT 3: TitanMAC + DeepNestedOptimizer - COMPLETE")
+    print("=" * 70)
+    print(f"Final Val Loss: {metrics['val_loss']:.4f}")
+    print(f"Final Val Accuracy: {metrics['val_accuracy']:.4f}")
+    print(f"Final Val Perplexity: {metrics['val_perplexity']:.2f}")
+    print(f"Final Memory Loss: {metrics['val_aux_loss']:.4f}")
+    print(f"Checkpoint saved to: {output_dir}")
 
 
 if __name__ == "__main__":

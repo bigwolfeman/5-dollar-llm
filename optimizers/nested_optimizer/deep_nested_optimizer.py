@@ -288,6 +288,7 @@ class DeepNestedOptimizer:
         meta_update_freq: int = 100,
         weight_decay: float = 0.0,
         max_grad_norm: float = 1.0,
+        low_memory: bool = True,  # Use fewer CMS levels to save memory
     ):
         if mode not in ('simple', 'explicit'):
             raise ValueError(f"mode must be 'simple' or 'explicit', got {mode}")
@@ -296,7 +297,11 @@ class DeepNestedOptimizer:
         self.base_lr = base_lr
         self.meta_lr = meta_lr
         self.k_unroll = k_unroll
-        self.cms_frequencies = cms_frequencies or [1, 10, 100]
+        # Low memory mode uses single-level CMS (saves ~4GB for 167M param model)
+        if low_memory:
+            self.cms_frequencies = cms_frequencies or [1]  # Single level
+        else:
+            self.cms_frequencies = cms_frequencies or [1, 10, 100]  # 3 levels
         self.use_gradient_checkpointing = use_gradient_checkpointing
         self.mode = mode
         self.meta_update_freq = meta_update_freq
@@ -632,10 +637,41 @@ class DeepNestedOptimizer:
 
         else:
             # Simplified: just use validation loss as proxy
-            with torch.no_grad():
-                val_loss = loss_fn(self.model, val_batch)
+            # NOTE: We don't use torch.no_grad() here because some models
+            # (like TitanMAC with neural memory) use torch.autograd.grad()
+            # internally and need gradient tracking enabled.
+            # We just compute the loss value without backpropagating.
 
-            self._update_meta_components(val_loss.item())
+            # Clear cache before forward pass to reduce OOM risk
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            # Use smaller batch if provided batch is large (reduce memory)
+            if isinstance(val_batch, dict) and 'input_ids' in val_batch:
+                batch_size = val_batch['input_ids'].size(0)
+                if batch_size > 4:
+                    # Use only first 4 samples to reduce memory
+                    val_batch = {
+                        k: v[:4] if torch.is_tensor(v) else v
+                        for k, v in val_batch.items()
+                    }
+
+            val_loss = loss_fn(self.model, val_batch)
+
+            # Detach to avoid any gradient accumulation from this forward pass
+            if hasattr(val_loss, 'detach'):
+                val_loss_value = val_loss.detach().item()
+            else:
+                val_loss_value = float(val_loss)
+
+            # Clear any gradients that accumulated during the forward pass
+            self.base_optimizer.zero_grad(set_to_none=True)
+
+            # Clear cache after forward pass
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            self._update_meta_components(val_loss_value)
 
     def zero_grad(self, set_to_none: bool = True):
         """Zero gradients for base optimizer."""

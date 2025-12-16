@@ -17,7 +17,7 @@ from .deep_nested_optimizer import (
     ContinuumMemoryState,
 )
 from .nested_controller import NestedController
-from .param_groups import group_moe_params, infer_param_depth
+from .param_groups import group_moe_params, group_titanmac_params, infer_param_depth
 from .meta_trainer import (
     UnrolledMetaTrainer,
     SimplifiedMetaTrainer,
@@ -30,6 +30,7 @@ __all__ = [
     'ContinuumMemoryState',
     'NestedController',
     'group_moe_params',
+    'group_titanmac_params',
     'infer_param_depth',
     'UnrolledMetaTrainer',
     'SimplifiedMetaTrainer',

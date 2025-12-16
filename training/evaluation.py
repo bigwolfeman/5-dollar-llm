@@ -71,8 +71,9 @@ def evaluate_model(model: nn.Module, val_loader: DataLoader, config: MoEModelCon
 
     model.train()
     return {
-        'val_loss': avg_loss, 
-        'val_aux_loss': avg_aux_loss, 
-        'val_accuracy': accuracy, 
-        'val_perplexity': perplexity
+        'val_loss': avg_loss,           # Pure CE loss (use for comparison)
+        'val_aux_loss': avg_aux_loss,   # MoE load balancing OR TitanMAC memory loss
+        'val_total_loss': avg_loss + avg_aux_loss,  # Total (CE + aux)
+        'val_accuracy': accuracy,
+        'val_perplexity': perplexity    # exp(val_loss) - based on CE only
     }

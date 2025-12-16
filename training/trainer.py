@@ -109,6 +109,10 @@ def train_model(
     
     scaler = GradScaler() if config.use_amp else None
 
+    # Reset peak memory stats for accurate tracking
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+
     # Training metrics tracking
     train_start_time = time.time()
     metrics_history = {
@@ -284,12 +288,22 @@ def train_model(
         }
     
     total_time = (time.time() - train_start_time) / 60
-    
+
+    # Track peak VRAM usage
+    if torch.cuda.is_available():
+        peak_vram_gb = torch.cuda.max_memory_allocated() / 1e9
+    else:
+        peak_vram_gb = 0.0
+
+    # Add peak VRAM to final metrics
+    final_eval['peak_vram_gb'] = peak_vram_gb
+
     print(f"\n📊 Final Results:")
     print(f"   Val Loss: {final_eval['val_loss']:.4f}")
     print(f"   Val Aux Loss: {final_eval['val_aux_loss']:.4f}")
     print(f"   Val Accuracy: {final_eval['val_accuracy']:.4f}")
     print(f"   Val Perplexity: {final_eval['val_perplexity']:.2f}")
+    print(f"   Peak VRAM: {peak_vram_gb:.2f} GB")
     print(f"   Total Time: {total_time:.2f} min")
     if stopped_early:
         print(f"   ⚠️  Training stopped early at step {step}")
@@ -304,6 +318,7 @@ def train_model(
         metrics_data = {
             'final_metrics': final_eval,
             'total_time_minutes': total_time,
+            'peak_vram_gb': peak_vram_gb,
             'stopped_early': stopped_early,
             'actual_steps': step,
             'history': metrics_history,

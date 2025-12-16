@@ -83,6 +83,79 @@ def group_moe_params(model: nn.Module) -> Tuple[List[nn.Parameter], List[nn.Para
     return core_params, embed_params
 
 
+def group_titanmac_params(model: nn.Module) -> Tuple[List[nn.Parameter], List[nn.Parameter]]:
+    """
+    Group TitanMAC model parameters into core and embed groups.
+
+    This grouping mirrors the Muon+AdamW split from the baseline:
+    - Core: 2D weight matrices (attention projections, MLP weights, memory projections)
+    - Embed: embeddings, norms, and other special params
+
+    TitanMAC structure:
+        - model.embed_tokens, model.embed_positions: embeddings
+        - model.layers[i]: TitanBlock (attention + MLP)
+        - model.norm: output RMSNorm
+        - model.lm_head: output projection
+        - model.neural_memory: memory MLP (if enabled)
+        - model.memory_proj, model.gate_proj: memory projections
+
+    Args:
+        model: TitanMACWrapper or TitanMAC model instance
+
+    Returns:
+        Tuple of (core_params, embed_params) lists
+
+    Example:
+        >>> model = TitanMACWrapper(config)
+        >>> core, embed = group_titanmac_params(model)
+        >>> print(f"Core: {len(core)}, Embed: {len(embed)}")
+    """
+    core_params = []
+    embed_params = []
+
+    # Handle wrapper vs direct model
+    if hasattr(model, 'model'):
+        actual_model = model.model
+    else:
+        actual_model = model
+
+    for name, param in actual_model.named_parameters():
+        if not param.requires_grad:
+            continue
+
+        is_embed_param = False
+
+        # Token embeddings -> embed group
+        if 'embed_tokens' in name or 'embed_positions' in name:
+            is_embed_param = True
+
+        # Norms (RMSNorm in TitanMAC) -> embed group
+        elif 'norm' in name.lower():
+            is_embed_param = True
+
+        # Persistent tokens -> embed group (they're learned but special)
+        elif 'persistent_tokens' in name:
+            is_embed_param = True
+
+        # 1D parameters (biases, etc.) -> embed group
+        elif param.ndim != 2:
+            is_embed_param = True
+
+        # Everything else (2D matrices) -> core
+        # This includes:
+        # - attention projections (qkv, out_proj, etc.)
+        # - MLP weights (linear1, linear2)
+        # - memory projections (memory_proj, gate_proj)
+        # - neural memory MLP weights
+
+        if is_embed_param:
+            embed_params.append(param)
+        else:
+            core_params.append(param)
+
+    return core_params, embed_params
+
+
 def infer_param_depth(name: str, n_layers: int) -> float:
     """
     Infer relative depth of parameter from name.

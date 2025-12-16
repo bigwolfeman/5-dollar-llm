@@ -164,7 +164,7 @@ def main():
     parser = argparse.ArgumentParser(description="Train TitanMAC Model")
     parser.add_argument("--muon_lr", type=float, help="Override Muon learning rate")
     parser.add_argument("--adamw_lr", type=float, help="Override AdamW learning rate")
-    parser.add_argument("--max_steps", type=int, help="Override max_steps")
+    parser.add_argument("--steps", "--max_steps", type=int, dest="max_steps", help="Override max_steps")
     parser.add_argument(
         "--experiment_name",
         type=str,
