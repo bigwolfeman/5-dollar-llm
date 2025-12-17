@@ -140,6 +140,27 @@ class TitanMACWrapper(nn.Module):
             # Reset neural memory state if it exists
             pass  # Neural memory doesn't have persistent state to reset
 
+    def get_neural_memory_stats(self):
+        """
+        Get neural memory statistics for saturation monitoring.
+
+        Returns dict with:
+            - memory_param_norm: L2 norm of memory MLP weights
+            - momentum_norm: L2 norm of momentum buffer
+            - alpha_t: Forget gate output (0=retain, 1=forget) - saturation indicator
+            - eta_t: Decay gate output (momentum decay)
+            - grad_norm: Memory gradient norm before clipping
+            - grad_clipped: Whether gradient was clipped
+
+        Saturation interpretation:
+            - High alpha_t (>0.8) + high loss = saturated, constantly forgetting
+            - Low alpha_t (<0.2) + low loss = healthy learning
+
+        Returns:
+            Dictionary with memory stats, or None if neural memory disabled
+        """
+        return self.model.get_neural_memory_stats()
+
 
 def create_titanmac_model(config) -> TitanMACWrapper:
     """

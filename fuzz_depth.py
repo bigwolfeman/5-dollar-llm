@@ -37,6 +37,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import optuna
 from optuna.trial import Trial
+from optuna.samplers import GridSampler, TPESampler
 
 # Best params from previous fuzzing (LR sweep)
 BEST_MOE_NESTED_PARAMS = {
@@ -72,8 +73,8 @@ EXPERIMENTS = {
         description="MoE + Nested Optimizer (depth focus)",
         base_params=BEST_MOE_NESTED_PARAMS,
         depth_params={
-            "momentum_num_layers": {"type": "int", "low": 1, "high": 6},
-            "controller_num_layers": {"type": "int", "low": 1, "high": 6},
+            "momentum_num_layers": {"type": "int", "low": 1, "high": 12},
+            "controller_num_layers": {"type": "int", "low": 1, "high": 12},
         },
     ),
     "titanmac_nested": ExperimentConfig(
@@ -82,8 +83,8 @@ EXPERIMENTS = {
         description="TitanMAC + Nested Optimizer (depth focus)",
         base_params=BEST_TITANMAC_NESTED_PARAMS,
         depth_params={
-            "momentum_num_layers": {"type": "int", "low": 1, "high": 6},
-            "controller_num_layers": {"type": "int", "low": 1, "high": 6},
+            "momentum_num_layers": {"type": "int", "low": 1, "high": 12},
+            "controller_num_layers": {"type": "int", "low": 1, "high": 12},
         },
     ),
 }
@@ -278,17 +279,57 @@ def create_objective(
     config: ExperimentConfig,
     max_steps: int,
     results_dir: Path,
+    skip_configs: set = None,
+    existing_data: dict = None,
 ) -> callable:
     """Create Optuna objective function."""
 
     all_results = []
+    skip_configs = skip_configs or set()
+    existing_data = existing_data or {}
 
     def objective(trial: Trial) -> float:
-        # Clear GPU memory before each trial
-        clear_gpu_memory(wait_time=3.0)
+        try:
+            return _objective_impl(trial)
+        except Exception as e:
+            print(f"\n❌ Trial {trial.number} failed with exception: {e}")
+            print("   Continuing with next trial...")
+            return float("inf")
 
+    def _objective_impl(trial: Trial) -> float:
         # Sample depth params
         depth_params = sample_params(trial, config)
+
+        # Check if this config should be skipped
+        config_key = (depth_params["momentum_num_layers"], depth_params["controller_num_layers"])
+        if config_key in skip_configs:
+            # Return the existing result without running
+            existing = existing_data.get(config_key, {})
+            loss = existing.get("loss", float("inf"))
+            print(f"\nSkipping existing config M={config_key[0]}, C={config_key[1]} -> loss={loss:.4f}")
+
+            # Store in results
+            result = {
+                "trial": trial.number,
+                "depth_params": depth_params,
+                "base_params": config.base_params,
+                "metrics": {
+                    "val_loss": loss,
+                    "val_accuracy": existing.get("accuracy"),
+                    "source": "existing",
+                },
+                "timestamp": datetime.now().isoformat(),
+            }
+            all_results.append(result)
+
+            # Save intermediate results
+            with open(results_dir / "all_trials.json", "w") as f:
+                json.dump(all_results, f, indent=2, default=str)
+
+            return loss
+
+        # Clear GPU memory before each trial
+        clear_gpu_memory(wait_time=3.0)
 
         # Run training
         metrics = run_training(
@@ -336,11 +377,75 @@ def create_objective(
     return objective, all_results
 
 
+def load_existing_configs(results_dirs: List[str], target_step: int = 600) -> Dict[Tuple[int, int], Dict]:
+    """
+    Load existing trial data and extract loss at target_step.
+
+    Returns dict mapping (momentum_layers, controller_layers) -> {loss, accuracy, source}
+    """
+    existing = {}
+
+    for results_dir in results_dirs:
+        trials_file = Path(results_dir) / "all_trials.json"
+        if not trials_file.exists():
+            continue
+
+        with open(trials_file) as f:
+            trials = json.load(f)
+
+        for trial in trials:
+            m = trial["depth_params"]["momentum_num_layers"]
+            c = trial["depth_params"]["controller_num_layers"]
+            key = (m, c)
+
+            # Try to get loss at target_step from trajectory
+            traj = trial.get("metrics", {}).get("trajectory", {})
+            steps = traj.get("steps", [])
+            losses = traj.get("val_losses", [])
+            accuracies = traj.get("val_accuracies", [])
+
+            loss_at_step = None
+            acc_at_step = None
+
+            if steps and losses:
+                # Find closest step to target
+                for i, s in enumerate(steps):
+                    if s >= target_step:
+                        loss_at_step = losses[i]
+                        if accuracies and i < len(accuracies):
+                            acc_at_step = accuracies[i]
+                        break
+                # If we didn't find it, use final value
+                if loss_at_step is None:
+                    loss_at_step = losses[-1]
+                    if accuracies:
+                        acc_at_step = accuracies[-1]
+            else:
+                # Fall back to final loss
+                loss_at_step = trial.get("metrics", {}).get("val_loss")
+                acc_at_step = trial.get("metrics", {}).get("val_accuracy")
+
+            if loss_at_step is not None:
+                # Only keep best result for each config
+                if key not in existing or loss_at_step < existing[key]["loss"]:
+                    existing[key] = {
+                        "loss": loss_at_step,
+                        "accuracy": acc_at_step,
+                        "source": str(results_dir),
+                        "original_trial": trial.get("trial"),
+                    }
+
+    return existing
+
+
 def run_study(
     experiment: str,
     n_trials: int,
     max_steps: int,
     results_base_dir: str = "fuzz_results_depth",
+    resume: bool = False,
+    use_grid: bool = False,
+    skip_existing_dirs: List[str] = None,
 ):
     """Run depth fuzzing study for an experiment."""
 
@@ -353,13 +458,75 @@ def run_study(
     results_dir = Path(results_base_dir) / config.name
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n{'#'*60}")
-    print(f"# Depth Fuzzing: {config.name}")
-    print(f"# Description: {config.description}")
-    print(f"# Trials: {n_trials}")
-    print(f"# Steps per trial: {max_steps}")
-    print(f"# Results: {results_dir}")
-    print(f"{'#'*60}\n")
+    storage = f"sqlite:///{results_dir}/optuna_study.db"
+
+    # Load existing configs to skip
+    skip_configs = set()
+    existing_data = {}
+    if skip_existing_dirs:
+        existing_data = load_existing_configs(skip_existing_dirs, target_step=max_steps)
+        skip_configs = set(existing_data.keys())
+        print(f"\nLoaded {len(skip_configs)} existing configs to skip")
+        print(f"  Sources: {skip_existing_dirs}")
+
+    # Choose sampler
+    if use_grid:
+        # Build grid from depth params
+        search_space = {}
+        for name, spec in config.depth_params.items():
+            if spec["type"] == "int":
+                search_space[name] = list(range(spec["low"], spec["high"] + 1))
+
+        total_configs = 1
+        for v in search_space.values():
+            total_configs *= len(v)
+
+        # Filter out existing configs from search space for reporting
+        new_configs = total_configs - len(skip_configs)
+
+        sampler = GridSampler(search_space)
+        print(f"\nUsing GRID search: {total_configs} total configurations")
+        print(f"  Search space: {search_space}")
+        print(f"  Skipping {len(skip_configs)} existing configs")
+        print(f"  New configs to run: {new_configs}")
+        # Override n_trials to cover full grid
+        n_trials = total_configs
+    else:
+        sampler = TPESampler(seed=42)
+        print(f"\nUsing BAYESIAN (TPE) search")
+
+    # Handle resume vs new study
+    if resume:
+        # Find existing study in the database
+        try:
+            study_summaries = optuna.study.get_all_study_summaries(storage=storage)
+            if not study_summaries:
+                print(f"No existing studies found in {storage}. Starting fresh.")
+                resume = False
+            else:
+                # Get the most recent study
+                latest_study = max(study_summaries, key=lambda s: s.datetime_start or datetime.min)
+                study_name = latest_study.study_name
+                completed_trials = latest_study.n_trials
+                print(f"\n{'#'*60}")
+                print(f"# RESUMING Depth Fuzzing: {config.name}")
+                print(f"# Existing study: {study_name}")
+                print(f"# Completed trials: {completed_trials}/{n_trials}")
+                print(f"# Remaining trials: {max(0, n_trials - completed_trials)}")
+                print(f"{'#'*60}\n")
+        except Exception as e:
+            print(f"Could not load existing study: {e}. Starting fresh.")
+            resume = False
+
+    if not resume:
+        study_name = f"{config.name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        print(f"\n{'#'*60}")
+        print(f"# Depth Fuzzing: {config.name}")
+        print(f"# Description: {config.description}")
+        print(f"# Trials: {n_trials}")
+        print(f"# Steps per trial: {max_steps}")
+        print(f"# Results: {results_dir}")
+        print(f"{'#'*60}\n")
 
     print("Base params (fixed from LR sweep):")
     for k, v in config.base_params.items():
@@ -368,22 +535,42 @@ def run_study(
     for k, v in config.depth_params.items():
         print(f"  {k}: {v}")
 
-    # Create study
-    study_name = f"{config.name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    storage = f"sqlite:///{results_dir}/optuna_study.db"
-
+    # Create/load study
     study = optuna.create_study(
         study_name=study_name,
         storage=storage,
         direction="minimize",
+        sampler=sampler,
         load_if_exists=True,
     )
 
-    # Create objective
-    objective_fn, all_results = create_objective(config, max_steps, results_dir)
+    # Load existing all_trials.json if resuming
+    all_results = []
+    trials_file = results_dir / "all_trials.json"
+    if resume and trials_file.exists():
+        with open(trials_file) as f:
+            all_results = json.load(f)
+        print(f"Loaded {len(all_results)} existing trial results")
 
-    # Run optimization
-    study.optimize(objective_fn, n_trials=n_trials, show_progress_bar=True)
+    # Create objective with existing results and skip configs
+    objective_fn, all_results_ref = create_objective(
+        config, max_steps, results_dir,
+        skip_configs=skip_configs,
+        existing_data=existing_data,
+    )
+    # Replace the empty list with loaded results from resume
+    all_results_ref.extend(all_results)
+
+    # Calculate remaining trials
+    completed = len(study.trials)
+    remaining = max(0, n_trials - completed)
+
+    if remaining == 0:
+        print(f"\nAll {n_trials} trials already completed!")
+    else:
+        print(f"\nRunning {remaining} remaining trials...")
+        # Run optimization for remaining trials only
+        study.optimize(objective_fn, n_trials=remaining, show_progress_bar=True)
 
     # Save final summary
     summary = {
@@ -1097,6 +1284,9 @@ Examples:
     parser.add_argument("--checkpoint_dir", type=str, default="./checkpoints", help="Checkpoint directory for reconstruction")
     parser.add_argument("--reconstruct", type=str, help="Reconstruct trajectories from checkpoint metrics.json files")
     parser.add_argument("--analyze", type=str, help="Analyze existing results from this directory (skip training)")
+    parser.add_argument("--resume", action="store_true", help="Resume an interrupted fuzzing run from where it left off")
+    parser.add_argument("--grid", action="store_true", help="Use grid search instead of Bayesian (TPE) - tests ALL combinations")
+    parser.add_argument("--skip_existing", type=str, nargs="+", help="Directories with existing results to skip (reuse data)")
     args = parser.parse_args()
 
     # Reconstruct mode - load trajectories from checkpoints
@@ -1119,9 +1309,13 @@ Examples:
     if args.experiment == "both":
         # Run both experiments
         for exp in ["moe_nested", "titanmac_nested"]:
-            run_study(exp, args.n_trials, args.steps, args.results_dir)
+            run_study(exp, args.n_trials, args.steps, args.results_dir,
+                     resume=args.resume, use_grid=args.grid,
+                     skip_existing_dirs=args.skip_existing)
     else:
-        run_study(args.experiment, args.n_trials, args.steps, args.results_dir)
+        run_study(args.experiment, args.n_trials, args.steps, args.results_dir,
+                 resume=args.resume, use_grid=args.grid,
+                 skip_existing_dirs=args.skip_existing)
 
 
 if __name__ == "__main__":

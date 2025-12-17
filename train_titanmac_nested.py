@@ -285,6 +285,12 @@ def train_titanmac_nested(
         'lr_multipliers_core': [],
         'lr_multipliers_embed': [],
         'meta_losses': [],
+        # Memory saturation metrics
+        'memory_alpha_t': [],  # Forget gate (0=retain, 1=forget)
+        'memory_eta_t': [],    # Decay gate (momentum decay)
+        'memory_grad_norm': [],  # Gradient norm before clipping
+        'memory_param_norm': [],  # Memory MLP weight norm
+        'momentum_norm': [],  # Momentum buffer norm
     }
 
     # Training loop
@@ -420,11 +426,33 @@ def train_titanmac_nested(
                 metrics_history['lr_multipliers_embed'].append(lr_mults[1].item())
                 metrics_history['meta_losses'].append(optimizer.last_meta_loss if optimizer.last_meta_loss else 0.0)
 
+                # Memory saturation metrics
+                memory_stats = model.get_neural_memory_stats()
+                if memory_stats:
+                    metrics_history['memory_alpha_t'].append(memory_stats.get('alpha_t', 0.0))
+                    metrics_history['memory_eta_t'].append(memory_stats.get('eta_t', 0.0))
+                    metrics_history['memory_grad_norm'].append(memory_stats.get('grad_norm', 0.0))
+                    metrics_history['memory_param_norm'].append(memory_stats.get('memory_param_norm', 0.0))
+                    metrics_history['momentum_norm'].append(memory_stats.get('momentum_norm', 0.0))
+                else:
+                    # No neural memory - fill with zeros
+                    metrics_history['memory_alpha_t'].append(0.0)
+                    metrics_history['memory_eta_t'].append(0.0)
+                    metrics_history['memory_grad_norm'].append(0.0)
+                    metrics_history['memory_param_norm'].append(0.0)
+                    metrics_history['momentum_norm'].append(0.0)
+
+                # Build memory stats string for logging
+                mem_stats_str = ""
+                if memory_stats and 'alpha_t' in memory_stats:
+                    mem_stats_str = f", α={memory_stats['alpha_t']:.3f}, η={memory_stats['eta_t']:.3f}"
+
                 print(f"\nStep {step}: Val Loss: {eval_metrics['val_loss']:.4f}, "
                       f"Val Mem Loss: {eval_metrics['val_aux_loss']:.4f}, "
                       f"Val Acc: {eval_metrics['val_accuracy']:.4f}, "
                       f"Val PPL: {eval_metrics['val_perplexity']:.2f}, "
-                      f"LR mult [core: {lr_mults[0].item():.3f}, embed: {lr_mults[1].item():.3f}]")
+                      f"LR mult [core: {lr_mults[0].item():.3f}, embed: {lr_mults[1].item():.3f}]"
+                      f"{mem_stats_str}")
 
                 model.train()
 
@@ -450,6 +478,21 @@ def train_titanmac_nested(
     metrics_history['lr_multipliers_core'].append(lr_mults[0].item())
     metrics_history['lr_multipliers_embed'].append(lr_mults[1].item())
     metrics_history['meta_losses'].append(optimizer.last_meta_loss if optimizer.last_meta_loss else 0.0)
+
+    # Final memory saturation metrics
+    final_memory_stats = model.get_neural_memory_stats()
+    if final_memory_stats:
+        metrics_history['memory_alpha_t'].append(final_memory_stats.get('alpha_t', 0.0))
+        metrics_history['memory_eta_t'].append(final_memory_stats.get('eta_t', 0.0))
+        metrics_history['memory_grad_norm'].append(final_memory_stats.get('grad_norm', 0.0))
+        metrics_history['memory_param_norm'].append(final_memory_stats.get('memory_param_norm', 0.0))
+        metrics_history['momentum_norm'].append(final_memory_stats.get('momentum_norm', 0.0))
+    else:
+        metrics_history['memory_alpha_t'].append(0.0)
+        metrics_history['memory_eta_t'].append(0.0)
+        metrics_history['memory_grad_norm'].append(0.0)
+        metrics_history['memory_param_norm'].append(0.0)
+        metrics_history['momentum_norm'].append(0.0)
 
     total_time = (time.time() - train_start_time) / 60
 
@@ -510,9 +553,10 @@ def train_titanmac_nested(
 
 
 def plot_training_curves(metrics_history, save_path):
-    """Plot and save training curves."""
-    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+    """Plot and save training curves including memory saturation metrics."""
+    fig, axes = plt.subplots(3, 3, figsize=(15, 14))
 
+    # Row 1: Core training metrics
     # Val Loss
     axes[0, 0].plot(metrics_history['steps'], metrics_history['val_losses'], 'b-', label='Val Loss')
     axes[0, 0].set_xlabel('Step')
@@ -537,6 +581,7 @@ def plot_training_curves(metrics_history, save_path):
     axes[0, 2].legend()
     axes[0, 2].grid(True)
 
+    # Row 2: Optimizer metrics
     # Memory Loss (aux loss)
     axes[1, 0].plot(metrics_history['steps'], metrics_history['val_aux_losses'], 'm-', label='Memory Loss')
     axes[1, 0].set_xlabel('Step')
@@ -561,6 +606,56 @@ def plot_training_curves(metrics_history, save_path):
     axes[1, 2].set_title('Meta-Learning Loss')
     axes[1, 2].legend()
     axes[1, 2].grid(True)
+
+    # Row 3: Memory saturation metrics
+    # Gate values (α_t and η_t)
+    if 'memory_alpha_t' in metrics_history and metrics_history['memory_alpha_t']:
+        axes[2, 0].plot(metrics_history['steps'], metrics_history['memory_alpha_t'], 'r-', label='α (forget)', linewidth=2)
+        axes[2, 0].plot(metrics_history['steps'], metrics_history['memory_eta_t'], 'b-', label='η (decay)', linewidth=2)
+        axes[2, 0].axhline(y=0.5, color='gray', linestyle='--', alpha=0.5)
+        axes[2, 0].set_xlabel('Step')
+        axes[2, 0].set_ylabel('Gate Value')
+        axes[2, 0].set_title('Memory Gates (Saturation)')
+        axes[2, 0].set_ylim(0, 1)
+        axes[2, 0].legend()
+        axes[2, 0].grid(True)
+
+        # Add annotation for saturation interpretation
+        final_alpha = metrics_history['memory_alpha_t'][-1] if metrics_history['memory_alpha_t'] else 0
+        if final_alpha > 0.7:
+            axes[2, 0].annotate('High forget rate\n(possible saturation)',
+                               xy=(0.95, 0.95), xycoords='axes fraction',
+                               ha='right', va='top', fontsize=8,
+                               bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.5))
+    else:
+        axes[2, 0].text(0.5, 0.5, 'No memory data', ha='center', va='center', transform=axes[2, 0].transAxes)
+        axes[2, 0].set_title('Memory Gates (N/A)')
+
+    # Memory norms
+    if 'memory_param_norm' in metrics_history and metrics_history['memory_param_norm']:
+        axes[2, 1].plot(metrics_history['steps'], metrics_history['memory_param_norm'], 'g-', label='Param norm', linewidth=2)
+        axes[2, 1].plot(metrics_history['steps'], metrics_history['momentum_norm'], 'orange', label='Momentum norm', linewidth=2)
+        axes[2, 1].set_xlabel('Step')
+        axes[2, 1].set_ylabel('Norm')
+        axes[2, 1].set_title('Memory Weight/Momentum Norms')
+        axes[2, 1].legend()
+        axes[2, 1].grid(True)
+    else:
+        axes[2, 1].text(0.5, 0.5, 'No memory data', ha='center', va='center', transform=axes[2, 1].transAxes)
+        axes[2, 1].set_title('Memory Norms (N/A)')
+
+    # Gradient norm
+    if 'memory_grad_norm' in metrics_history and metrics_history['memory_grad_norm']:
+        axes[2, 2].plot(metrics_history['steps'], metrics_history['memory_grad_norm'], 'purple', label='Grad norm', linewidth=2)
+        axes[2, 2].axhline(y=1.0, color='red', linestyle='--', alpha=0.7, label='Clip threshold')
+        axes[2, 2].set_xlabel('Step')
+        axes[2, 2].set_ylabel('Gradient Norm')
+        axes[2, 2].set_title('Memory Gradient Norm')
+        axes[2, 2].legend()
+        axes[2, 2].grid(True)
+    else:
+        axes[2, 2].text(0.5, 0.5, 'No memory data', ha='center', va='center', transform=axes[2, 2].transAxes)
+        axes[2, 2].set_title('Memory Gradient (N/A)')
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150)
