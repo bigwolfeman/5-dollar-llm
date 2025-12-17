@@ -66,8 +66,6 @@ class Blueberry24GBConfig(BlueberryConfig):
 class Blueberry80GBConfig(BlueberryConfig):
     # Optimized for H100 (80GB)
     batch_size: int = 128
-    # Optimized for H100 (80GB)
-    batch_size: int = 128
     gradient_accumulation_steps: int = 2
 
 
