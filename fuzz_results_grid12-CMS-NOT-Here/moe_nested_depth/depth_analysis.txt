@@ -1,0 +1,74 @@
+DEPTH TREND ANALYSIS
+============================================================
+
+Valid trials: 144
+
+Momentum Depth Stats (Final Loss):
+  Depth 1: avg=5.0032, min=4.3817, n=12
+  Depth 2: avg=4.5674, min=4.3801, n=12
+  Depth 3: avg=4.8873, min=4.3651, n=12
+  Depth 4: avg=4.8006, min=4.3798, n=12
+  Depth 5: avg=4.8866, min=4.3758, n=12
+  Depth 6: avg=4.8395, min=4.3825, n=12
+  Depth 7: avg=4.8359, min=4.3837, n=12
+  Depth 8: avg=4.8563, min=4.3744, n=12
+  Depth 9: avg=5.0253, min=4.3709, n=12
+  Depth 10: avg=4.9259, min=4.3806, n=12
+  Depth 11: avg=4.7812, min=4.3696, n=12
+  Depth 12: avg=4.8884, min=4.3766, n=12
+
+Controller Depth Stats (Final Loss):
+  Depth 1: avg=5.0412, min=4.3651, n=12
+  Depth 2: avg=5.0959, min=4.3826, n=12
+  Depth 3: avg=5.3273, min=4.3709, n=12
+  Depth 4: avg=4.8362, min=4.3744, n=12
+  Depth 5: avg=5.2083, min=4.3825, n=12
+  Depth 6: avg=4.9634, min=4.3696, n=12
+  Depth 7: avg=4.8554, min=4.3763, n=12
+  Depth 8: avg=4.6050, min=4.3775, n=12
+  Depth 9: avg=4.6709, min=4.4099, n=12
+  Depth 10: avg=4.6688, min=4.3923, n=12
+  Depth 11: avg=4.5293, min=4.3945, n=12
+  Depth 12: avg=4.4961, min=4.4158, n=12
+
+Best: momentum=3, controller=1, loss=4.3651
+
+============================================================
+CONVERGENCE ANALYSIS (from trajectories)
+============================================================
+
+Momentum Depth Convergence:
+Depth    Avg Slope    Avg Stability  n     
+--------------------------------------------
+1        -0.004349    0.6950         12    
+2        -0.004112    0.6638         12    
+3        -0.004325    0.6936         12    
+4        -0.004183    0.6751         12    
+5        -0.004345    0.6945         12    
+6        -0.004242    0.6813         12    
+7        -0.004326    0.6939         12    
+8        -0.004331    0.6936         12    
+9        -0.004444    0.7079         12    
+10       -0.004425    0.7072         12    
+11       -0.004346    0.6963         12    
+12       -0.004371    0.7000         12    
+
+Controller Depth Convergence:
+Depth    Avg Slope    Avg Stability  n     
+--------------------------------------------
+1        -0.004477    0.7146         12    
+2        -0.004564    0.7257         12    
+3        -0.004637    0.7366         12    
+4        -0.004232    0.6810         12    
+5        -0.004700    0.7459         12    
+6        -0.004381    0.7005         12    
+7        -0.004426    0.7079         12    
+8        -0.004149    0.6693         12    
+9        -0.004083    0.6598         12    
+10       -0.004097    0.6584         12    
+11       -0.004079    0.6593         12    
+12       -0.003973    0.6433         12    
+
+Note: Slope = (final_loss - initial_loss) / steps
+      More negative slope = faster convergence
+      Lower stability (std) = more stable training

@@ -66,26 +66,67 @@ class ExperimentConfig:
     depth_params: Dict[str, Any]  # Depth params to fuzz
 
 
+# Grid definitions for different search intensities
+FULL_GRID = {
+    "momentum_num_layers": {"type": "int", "low": 1, "high": 12},
+    "controller_num_layers": {"type": "int", "low": 1, "high": 12},
+}  # 12x12 = 144 configs
+
+PRUNED_GRID = {
+    "momentum_num_layers": {"type": "categorical", "choices": [1, 2, 4, 6, 8, 10]},
+    "controller_num_layers": {"type": "categorical", "choices": [1, 2, 4, 6, 8, 10]},
+}  # 6x6 = 36 configs
+
+QUICK_GRID = {
+    "momentum_num_layers": {"type": "categorical", "choices": [1, 4, 8, 12]},
+    "controller_num_layers": {"type": "categorical", "choices": [1, 4, 8, 12]},
+}  # 4x4 = 16 configs
+
 EXPERIMENTS = {
+    # Full 12x12 grid (144 configs) - overnight runs
     "moe_nested": ExperimentConfig(
         name="moe_nested_depth",
         script="train_moe_nested.py",
-        description="MoE + Nested Optimizer (depth focus)",
+        description="MoE + Nested Optimizer (12x12 full grid)",
         base_params=BEST_MOE_NESTED_PARAMS,
-        depth_params={
-            "momentum_num_layers": {"type": "int", "low": 1, "high": 12},
-            "controller_num_layers": {"type": "int", "low": 1, "high": 12},
-        },
+        depth_params=FULL_GRID,
     ),
     "titanmac_nested": ExperimentConfig(
         name="titanmac_nested_depth",
         script="train_titanmac_nested.py",
-        description="TitanMAC + Nested Optimizer (depth focus)",
+        description="TitanMAC + Nested Optimizer (12x12 full grid)",
         base_params=BEST_TITANMAC_NESTED_PARAMS,
-        depth_params={
-            "momentum_num_layers": {"type": "int", "low": 1, "high": 12},
-            "controller_num_layers": {"type": "int", "low": 1, "high": 12},
-        },
+        depth_params=FULL_GRID,
+    ),
+    # Pruned 6x6 grid (36 configs) - ~3 hours
+    "moe_pruned": ExperimentConfig(
+        name="moe_nested_pruned",
+        script="train_moe_nested.py",
+        description="MoE + Nested Optimizer (6x6 pruned grid)",
+        base_params=BEST_MOE_NESTED_PARAMS,
+        depth_params=PRUNED_GRID,
+    ),
+    "titanmac_pruned": ExperimentConfig(
+        name="titanmac_nested_pruned",
+        script="train_titanmac_nested.py",
+        description="TitanMAC + Nested Optimizer (6x6 pruned grid)",
+        base_params=BEST_TITANMAC_NESTED_PARAMS,
+        depth_params=PRUNED_GRID,
+    ),
+    # Quick 4x4 grid (16 configs) - ~40 min
+    "moe_quick": ExperimentConfig(
+        name="moe_nested_quick",
+        script="train_moe_nested.py",
+        description="MoE + Nested Optimizer (4x4 quick grid)",
+        base_params=BEST_MOE_NESTED_PARAMS,
+        depth_params=QUICK_GRID,
+    ),
+    "titanmac_quick": ExperimentConfig(
+        name="titanmac_nested_quick",
+        script="train_titanmac_nested.py",
+        description="TitanMAC + Nested Optimizer (4x4 quick grid)",
+        base_params=BEST_TITANMAC_NESTED_PARAMS,
+        depth_params=QUICK_GRID,
     ),
 }
 
@@ -476,6 +517,8 @@ def run_study(
         for name, spec in config.depth_params.items():
             if spec["type"] == "int":
                 search_space[name] = list(range(spec["low"], spec["high"] + 1))
+            elif spec["type"] == "categorical":
+                search_space[name] = spec["choices"]
 
         total_configs = 1
         for v in search_space.values():

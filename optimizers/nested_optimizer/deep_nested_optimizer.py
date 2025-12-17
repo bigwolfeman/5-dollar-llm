@@ -290,7 +290,7 @@ class DeepNestedOptimizer:
         meta_update_freq: int = 100,
         weight_decay: float = 0.0,
         max_grad_norm: float = 1.0,
-        low_memory: bool = True,  # Use fewer CMS levels to save memory
+        low_memory: bool = False,  # Use full CMS levels for proper forgetting prevention
     ):
         if mode not in ('simple', 'explicit'):
             raise ValueError(f"mode must be 'simple' or 'explicit', got {mode}")
@@ -476,10 +476,15 @@ class DeepNestedOptimizer:
 
     def step(self, loss_value: Optional[float] = None):
         """
-        Perform optimization step.
+        Perform optimization step with Continuum Memory System (CMS).
 
-        In 'simple' mode, may trigger automatic meta-update.
-        In 'explicit' mode, only does inner optimization step.
+        Implements multi-frequency updates per the Nested Learning paper:
+        - Level 0: Updates every step (fast adaptation)
+        - Level 1: Updates every 10 steps (short-term patterns)
+        - Level 2: Updates every 100 steps (long-term consolidation)
+
+        Each level accumulates gradients and applies learned momentum transformation.
+        Slower levels preserve consolidated knowledge (anti-forgetting mechanism).
 
         Args:
             loss_value: Current loss (required for controller updates)
@@ -508,29 +513,73 @@ class DeepNestedOptimizer:
         else:
             self.ema_loss = (1 - self.beta_ema) * self.ema_loss + self.beta_ema * actual_loss
 
-        # Compute gradient statistics
+        # Compute gradient statistics for controller
         stats = self._compute_group_stats()
 
         # Get LR multipliers from controller
         with torch.no_grad():
             self._lr_multipliers = self.controller(stats)
 
-        # Update base optimizer learning rates
-        for i, group in enumerate(self.base_optimizer.param_groups):
-            if len(group['params']) > 0:
-                group['lr'] = self.base_lr * self._lr_multipliers[i].item()
-
-        # Clip gradients
+        # Clip gradients before CMS processing
         if self.max_grad_norm > 0:
             clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
 
-        # Base optimizer step
-        self.base_optimizer.step()
+        # Get context for momentum MLP
+        context = self._get_context(actual_loss)
+
+        # CMS-based parameter updates (replaces base_optimizer.step())
+        with torch.no_grad():
+            for group_idx, group in enumerate(self.base_optimizer.param_groups):
+                lr = self.base_lr * self._lr_multipliers[group_idx].item()
+
+                for param in group['params']:
+                    if param.grad is None:
+                        continue
+
+                    grad = param.grad
+                    cms = self.state[param]
+
+                    # Accumulate gradient into all CMS levels
+                    cms.accumulate_grad(grad)
+
+                    # Compute update from each active level
+                    total_update = torch.zeros_like(param)
+                    num_active_levels = 0
+
+                    for level in range(len(self.cms_frequencies)):
+                        if cms.should_update(level, self.global_step):
+                            # Get accumulated gradient for this level
+                            level_grad = cms.get_update(level)
+                            prev_momentum = cms.get_momentum(level)
+
+                            # Apply learned momentum transformation
+                            scale, shift, damping = self.momentum_mlp(
+                                level_grad, prev_momentum, context
+                            )
+
+                            # Update momentum: v = scale * v_prev + shift * grad
+                            new_momentum = scale * prev_momentum + shift * level_grad
+                            cms.update_momentum(level, new_momentum)
+
+                            # Compute level contribution with damping
+                            # Higher levels (slower) get lower weight to preserve knowledge
+                            level_weight = 1.0 / (level + 1)
+                            level_update = new_momentum * (1 - damping) * level_weight
+
+                            total_update += level_update
+                            num_active_levels += 1
+
+                    # Apply combined update if any levels were active
+                    if num_active_levels > 0:
+                        # Weight decay
+                        if self.weight_decay > 0:
+                            total_update += self.weight_decay * param
+
+                        # Apply update with learning rate
+                        param.add_(total_update, alpha=-lr)
 
         # Simple mode: auto meta-update
         if self.mode == 'simple' and self.global_step % self.meta_update_freq == 0:
-            # Note: In simple mode, we use training loss as proxy for meta-loss
-            # This is less principled but simpler
             self._update_meta_components(actual_loss)
 
         return {
