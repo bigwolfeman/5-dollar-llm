@@ -19,7 +19,7 @@
 **Our goals:**
 1. **GPT-1** Level by Dec 20 2025
 2. **GPT-2** Level by Jan 20 2026
-3. **GPT-3** Level by Feb 20 2027
+3. **GPT-3** Level by Feb 20 2026
 4. **Top 150** in LMArena (GPT-4o-mini level) by April 2026
 5. **Top 50** by Dec 2026
 6. **Top 10** by April 2027
