@@ -23,6 +23,8 @@
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **1** | 2025-12-18 | **9m 7s** | **18,767,872** | [Vuk Rosić](https://x.com/VukRosic99) | Optimized Config (LR 0.015, Warmup 0, Constant, GradAcc 1) + [Per-step check] |
 
+## 🗂️ More categories coming soon
+- You may suggest: goal is to interpolate between fast experimentation and confirming it works on big models.
 
 ## 🏅 The 1B Marathon (World Record)
 *Goal: Best Model @ 1B Tokens (Time < 4h)*
