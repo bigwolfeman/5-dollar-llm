@@ -188,6 +188,80 @@ class TitanMACGPU24GBConfig(TitanMACModelConfig):
 
 
 @dataclass
+class TitanMAC168MConfig(TitanMACModelConfig):
+    """
+    TitanMAC configuration scaled to ~168M parameters.
+
+    Matches MoE baseline parameter count for fair architecture comparison.
+    Scaled from GPU24GBMoEModelConfig (168M) dimensions.
+
+    Parameter breakdown:
+        - Token embeddings: vocab_size * d_model = 50257 * 1024 = 51.5M
+        - Per layer: ~12.6M (attention + FFN)
+        - 9 layers: ~113M
+        - Total: ~165M (approximately matches MoE 168M)
+
+    NOTE: Larger model requires more VRAM. May need:
+        - Gradient checkpointing enabled
+        - Reduced batch size
+        - Gradient accumulation
+    """
+
+    # Scaled architecture to ~168M params
+    d_model: int = 1024
+    n_heads: int = 16
+    n_layers: int = 9
+    d_ff: int = 4096
+
+    # Batch size: batch=8 * grad_accum=2 = effective 16
+    batch_size: int = 8
+    gradient_accumulation_steps: int = 2
+
+    # Training parameters
+    muon_lr: float = 0.02  # Reduced for larger model
+    adamw_lr: float = 0.003
+
+    # Data
+    max_seq_len: int = 1024
+    num_documents: int = 250000
+
+    # Logging and training length
+    log_milestones: Tuple[int, ...] = (100, 200, 300)
+    max_steps: int = 800
+    eval_every: int = 50
+
+    # TitanMAC-specific settings
+    window_size: int = 512
+    n_persistent: int = 16
+    use_block_sparse: bool = True
+    block_size: int = 64
+
+    # Neural memory settings
+    use_neural_memory: bool = True
+    n_memory_layers: int = 2
+    d_memory: Optional[int] = None  # Defaults to d_model (1024)
+    memory_theta_lr: float = 0.01
+    memory_forget_hidden: int = 64
+    memory_decay_hidden: int = 64
+
+    # Use MAG variant (most memory efficient)
+    titans_variant: str = "MAG"
+    segment_size: int = 512
+    n_memory_tokens: int = 32
+
+    # Regularization
+    dropout: float = 0.1
+    weight_decay: float = 0.2
+    grad_clip: float = 1.0
+
+    # Enable gradient checkpointing for memory efficiency
+    use_gradient_checkpointing: bool = True
+
+    def __post_init__(self):
+        super().__post_init__()
+
+
+@dataclass
 class DebugTitanMACConfig(TitanMACModelConfig):
     """
     Tiny TitanMAC configuration for fast debugging on any hardware.

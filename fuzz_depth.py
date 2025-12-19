@@ -1318,8 +1318,8 @@ Examples:
     parser.add_argument(
         "--experiment",
         type=str,
-        choices=["moe_nested", "titanmac_nested", "both"],
-        help="Which experiment to fuzz",
+        choices=list(EXPERIMENTS.keys()) + ["both"],
+        help="Which experiment to fuzz (use _pruned or _quick variants for smaller grids)",
     )
     parser.add_argument("--n_trials", type=int, default=25, help="Number of trials")
     parser.add_argument("--steps", type=int, default=1200, help="Training steps per trial")

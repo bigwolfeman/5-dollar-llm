@@ -1,6 +1,7 @@
 fuzz_results/
 Ai-notes/
 specs/
+docs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

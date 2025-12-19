@@ -38,16 +38,35 @@ import matplotlib.pyplot as plt
 # Fix tokenizer parallelism warning when using DataLoader workers
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-from configs.titanmac_config import TitanMACModelConfig, TitanMACGPU24GBConfig, DebugTitanMACConfig
+from configs.titanmac_config import TitanMACModelConfig, TitanMACGPU24GBConfig, TitanMAC168MConfig, DebugTitanMACConfig
 from configs.dataset_config import DataConfig
 from models.titanmac_wrapper import TitanMACWrapper, create_titanmac_model
-from optimizers.nested_optimizer import DeepNestedOptimizer, group_titanmac_params
+
+# Add TitanMAC path for nested optimizer imports
+import sys
+_titan_path = os.path.join(os.path.dirname(__file__), "111TitanMAC-Standalone")
+if _titan_path not in sys.path:
+    sys.path.insert(0, _titan_path)
+from titans_core.opt import DeepNestedOptimizer, group_titanmac_params
 from training.evaluation import evaluate_model
 from utils.helpers import set_seed
 from utils.logger import setup_logging
 
 
 logger = logging.getLogger(__name__)
+
+
+def get_config(config_name: str) -> TitanMACModelConfig:
+    """Get config by name."""
+    configs = {
+        "default": TitanMAC168MConfig,
+        "24gb": TitanMACGPU24GBConfig,
+        "168m": TitanMAC168MConfig,
+        "debug": DebugTitanMACConfig,
+    }
+    if config_name not in configs:
+        raise ValueError(f"Unknown config: {config_name}. Choose from: {list(configs.keys())}")
+    return configs[config_name]()
 
 
 def print_system_info():
@@ -203,6 +222,7 @@ def train_titanmac_nested(
             'meta_lr': 1e-4,
             'k_unroll': 5,
             'use_unrolled': False,  # Use SimplifiedMetaTrainer by default
+            'use_cms_updates': False,  # AdamW + learned LR multipliers (proven to work)
             'momentum_hidden_dim': 64,
             'controller_hidden_dim': 32,
             'mode': 'explicit',
@@ -240,6 +260,7 @@ def train_titanmac_nested(
     print(f"  Embed parameters: {embed_numel:,}")
 
     # Create nested optimizer with TitanMAC param groups
+    use_cms = nested_config.get('use_cms_updates', True)
     optimizer = DeepNestedOptimizer(
         model=model,
         base_lr=nested_config['base_lr'],
@@ -253,7 +274,10 @@ def train_titanmac_nested(
         meta_update_freq=nested_config['meta_update_freq'],
         weight_decay=nested_config['weight_decay'],
         max_grad_norm=nested_config['max_grad_norm'],
+        use_cms_updates=use_cms,
     )
+    update_mode = "CMS (paper-aligned)" if use_cms else "AdamW (fallback)"
+    print(f"  Update mode: {update_mode}")
 
     # Create loss function for meta-updates
     loss_fn = create_loss_fn(config)
@@ -424,7 +448,12 @@ def train_titanmac_nested(
                 metrics_history['learning_rates'].append(effective_lrs[0])
                 metrics_history['lr_multipliers_core'].append(lr_mults[0].item())
                 metrics_history['lr_multipliers_embed'].append(lr_mults[1].item())
-                metrics_history['meta_losses'].append(optimizer.last_meta_loss if optimizer.last_meta_loss else 0.0)
+                meta_loss = optimizer.last_meta_loss
+                if meta_loss is not None:
+                    meta_loss = meta_loss.item() if hasattr(meta_loss, 'item') else float(meta_loss)
+                else:
+                    meta_loss = 0.0
+                metrics_history['meta_losses'].append(meta_loss)
 
                 # Memory saturation metrics
                 memory_stats = model.get_neural_memory_stats()
@@ -477,7 +506,12 @@ def train_titanmac_nested(
     metrics_history['learning_rates'].append(effective_lrs[0])
     metrics_history['lr_multipliers_core'].append(lr_mults[0].item())
     metrics_history['lr_multipliers_embed'].append(lr_mults[1].item())
-    metrics_history['meta_losses'].append(optimizer.last_meta_loss if optimizer.last_meta_loss else 0.0)
+    meta_loss = optimizer.last_meta_loss
+    if meta_loss is not None:
+        meta_loss = meta_loss.item() if hasattr(meta_loss, 'item') else float(meta_loss)
+    else:
+        meta_loss = 0.0
+    metrics_history['meta_losses'].append(meta_loss)
 
     # Final memory saturation metrics
     final_memory_stats = model.get_neural_memory_stats()
@@ -671,6 +705,7 @@ def main():
     set_seed(42)
 
     parser = argparse.ArgumentParser(description="Train TitanMAC with DeepNestedOptimizer")
+    parser.add_argument("--config", type=str, default="168m", help="Config name: 168m, 24gb, debug")
     parser.add_argument("--base_lr", type=float, default=3e-4, help="Base learning rate")
     parser.add_argument("--meta_lr", type=float, default=1e-4, help="Meta learning rate")
     parser.add_argument("--k_unroll", type=int, default=5, help="K-step unrolling for meta-update")
@@ -680,21 +715,19 @@ def main():
     parser.add_argument("--controller_num_layers", type=int, default=2, help="Number of layers in controller network")
     parser.add_argument("--use_unrolled", action="store_true",
                         help="Use full k-step unrolled meta-learning (WARNING: very memory intensive)")
+    parser.add_argument("--use_cms", action="store_true",
+                        help="Use experimental CMS mode instead of AdamW. WARNING: CMS performs "
+                             "~2x worse than AdamW because it cannot learn adaptive per-param LR.")
     parser.add_argument("--variant", type=str, default="MAG", choices=["MAC", "MAG", "MAL"],
                         help="TitanMAC variant to use")
     parser.add_argument("--steps", "--max_steps", type=int, dest="max_steps", help="Override max_steps")
     parser.add_argument("--experiment_name", type=str, default="titanmac_nested", help="Name of the experiment")
     parser.add_argument("--output_dir", type=str, default="./checkpoints", help="Output directory")
-    parser.add_argument("--debug", action="store_true", help="Use debug config for quick testing")
     args = parser.parse_args()
 
-    # Select config based on debug flag
-    if args.debug:
-        config = DebugTitanMACConfig()
-        print("Using DEBUG config (tiny model for testing)")
-    else:
-        config = TitanMACGPU24GBConfig()
-        print("Using GPU24GB config")
+    # Get config by name
+    config = get_config(args.config)
+    print(f"Using {args.config} configuration")
 
     # Override config with args
     if args.max_steps is not None:
@@ -712,6 +745,7 @@ def main():
         'meta_lr': args.meta_lr,
         'k_unroll': args.k_unroll,
         'use_unrolled': args.use_unrolled,  # False by default - SimplifiedMetaTrainer is cheaper
+        'use_cms_updates': args.use_cms,  # False by default (AdamW + learned LR multipliers)
         'momentum_hidden_dim': args.momentum_hidden_dim,
         'momentum_num_layers': args.momentum_num_layers,
         'controller_hidden_dim': args.controller_hidden_dim,

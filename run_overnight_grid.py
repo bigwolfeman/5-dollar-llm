@@ -2,13 +2,15 @@
 """
 Overnight Grid Search Runner
 
-Runs comprehensive 12x12 depth grid search for both MoE and TitanMAC,
+Runs 6x6 pruned depth grid search for both MoE and TitanMAC,
 plus baseline comparisons with Muon+AdamW.
+
+Uses pruned grid (M,C in [1,2,4,6,8,10]) for efficient exploration.
 
 Usage:
     python run_overnight_grid.py
 
-Estimated time: ~11 hours for full grid (260 new trials @ ~2.5 min each)
+Estimated time: ~3-4 hours for pruned grid (72 trials + 2 baselines @ ~2.5 min each)
 """
 
 import os
@@ -21,14 +23,11 @@ from pathlib import Path
 
 # Configuration
 STEPS = 600
-RESULTS_DIR = "fuzz_results_grid12"
-CHECKPOINT_DIR = "checkpoints_grid12"
+RESULTS_DIR = "fuzz_results_cms"
+CHECKPOINT_DIR = "checkpoints_cms"
 
-# Existing results to reuse (will extract loss@600 from trajectories)
-EXISTING_RESULTS = [
-    "fuzz_results_depth/backup/moe_nested_depth",
-    "fuzz_results_depth/backup/titanmac_nested_depth",
-]
+# No existing results - CMS fix invalidates previous data
+EXISTING_RESULTS = []
 
 
 def run_command(cmd: list, description: str) -> bool:
@@ -117,19 +116,19 @@ def run_analysis() -> bool:
 def main():
     print(f"""
 {'#'*70}
-#  OVERNIGHT GRID SEARCH
-#  12x12 Depth Grid + Baselines
+#  CMS GRID SEARCH (with proper Continuum Memory System)
+#  6x6 Pruned Depth Grid + Baselines
 #  Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 {'#'*70}
 
 Configuration:
-  - Grid: 12x12 = 144 configs per architecture
+  - Grid: 6x6 = 36 configs per architecture (M,C in [1,2,4,6,8,10])
   - Steps: {STEPS}
   - Results: {RESULTS_DIR}
   - Checkpoints: {CHECKPOINT_DIR}
-  - Reusing data from: {EXISTING_RESULTS}
+  - Fresh run (CMS fix invalidates previous data)
 
-Estimated time: ~11 hours
+Estimated time: ~3-4 hours
 """)
 
     # Create directories
@@ -147,22 +146,22 @@ Estimated time: ~11 hours
     results["moe_baseline"] = run_baseline("moe", STEPS)
     results["titanmac_baseline"] = run_baseline("titanmac", STEPS)
 
-    # Step 2: Run MoE grid
+    # Step 2: Run MoE grid (6x6 pruned)
     print("\n" + "="*70)
-    print("PHASE 2: MOE GRID SEARCH")
+    print("PHASE 2: MOE GRID SEARCH (6x6 pruned)")
     print("="*70)
 
-    # Filter existing dirs to only MoE-relevant ones
+    # Use pruned experiment for 6x6 grid
     moe_existing = [d for d in EXISTING_RESULTS if "moe" in d.lower()]
-    results["moe_grid"] = run_grid_search("moe_nested", STEPS, moe_existing)
+    results["moe_grid"] = run_grid_search("moe_pruned", STEPS, moe_existing)
 
-    # Step 3: Run TitanMAC grid
+    # Step 3: Run TitanMAC grid (6x6 pruned)
     print("\n" + "="*70)
-    print("PHASE 3: TITANMAC GRID SEARCH")
+    print("PHASE 3: TITANMAC GRID SEARCH (6x6 pruned)")
     print("="*70)
 
     titan_existing = [d for d in EXISTING_RESULTS if "titanmac" in d.lower()]
-    results["titanmac_grid"] = run_grid_search("titanmac_nested", STEPS, titan_existing)
+    results["titanmac_grid"] = run_grid_search("titanmac_pruned", STEPS, titan_existing)
 
     # Step 4: Analysis
     print("\n" + "="*70)

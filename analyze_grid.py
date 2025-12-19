@@ -31,19 +31,31 @@ def load_grid_results(results_dir: Path) -> Dict:
     """Load all grid search results."""
     results = {"moe": [], "titanmac": []}
 
-    # Load MoE results
-    moe_file = results_dir / "moe_nested_depth" / "all_trials.json"
-    if moe_file.exists():
-        with open(moe_file) as f:
-            results["moe"] = json.load(f)
-        print(f"Loaded {len(results['moe'])} MoE trials")
+    # Try multiple possible paths for MoE results
+    moe_paths = [
+        results_dir / "moe_nested_depth" / "all_trials.json",
+        results_dir / "moe_nested_pruned" / "all_trials.json",
+        results_dir / "moe_nested_quick" / "all_trials.json",
+    ]
+    for moe_file in moe_paths:
+        if moe_file.exists():
+            with open(moe_file) as f:
+                results["moe"] = json.load(f)
+            print(f"Loaded {len(results['moe'])} MoE trials from {moe_file.parent.name}")
+            break
 
-    # Load TitanMAC results
-    titan_file = results_dir / "titanmac_nested_depth" / "all_trials.json"
-    if titan_file.exists():
-        with open(titan_file) as f:
-            results["titanmac"] = json.load(f)
-        print(f"Loaded {len(results['titanmac'])} TitanMAC trials")
+    # Try multiple possible paths for TitanMAC results
+    titan_paths = [
+        results_dir / "titanmac_nested_depth" / "all_trials.json",
+        results_dir / "titanmac_nested_pruned" / "all_trials.json",
+        results_dir / "titanmac_nested_quick" / "all_trials.json",
+    ]
+    for titan_file in titan_paths:
+        if titan_file.exists():
+            with open(titan_file) as f:
+                results["titanmac"] = json.load(f)
+            print(f"Loaded {len(results['titanmac'])} TitanMAC trials from {titan_file.parent.name}")
+            break
 
     return results
 
@@ -279,6 +291,143 @@ def plot_placeholder(ax, title: str, message: str = "Not applicable"):
         spine.set_color('lightgray')
 
 
+def extract_resource_data(trials: List[Dict]) -> Tuple[np.ndarray, np.ndarray, Dict]:
+    """
+    Extract VRAM and time data from trials into grids.
+
+    Returns:
+        vram_grid: 2D array of peak VRAM (GB) by M x C
+        time_grid: 2D array of execution time (min) by M x C
+        stats: Dict with min/max/avg for each metric
+    """
+    if not trials:
+        return np.array([]), np.array([]), {}
+
+    # Find grid dimensions
+    max_m = max(t["depth_params"]["momentum_num_layers"] for t in trials)
+    max_c = max(t["depth_params"]["controller_num_layers"] for t in trials)
+
+    # Create grids
+    vram_grid = np.full((max_m, max_c), np.nan)
+    time_grid = np.full((max_m, max_c), np.nan)
+
+    vram_values = []
+    time_values = []
+
+    for trial in trials:
+        m = trial["depth_params"]["momentum_num_layers"]
+        c = trial["depth_params"]["controller_num_layers"]
+        metrics = trial.get("metrics", {})
+
+        vram = metrics.get("peak_vram_gb")
+        elapsed = metrics.get("elapsed_seconds")
+
+        if vram is not None and vram > 0:
+            vram_grid[m-1, c-1] = vram
+            vram_values.append(vram)
+
+        if elapsed is not None and elapsed > 0:
+            time_min = elapsed / 60.0
+            time_grid[m-1, c-1] = time_min
+            time_values.append(time_min)
+
+    stats = {
+        "vram_min": min(vram_values) if vram_values else 0,
+        "vram_max": max(vram_values) if vram_values else 0,
+        "vram_avg": sum(vram_values) / len(vram_values) if vram_values else 0,
+        "time_min": min(time_values) if time_values else 0,
+        "time_max": max(time_values) if time_values else 0,
+        "time_avg": sum(time_values) / len(time_values) if time_values else 0,
+    }
+
+    return vram_grid, time_grid, stats
+
+
+def plot_resource_heatmap(ax, grid: np.ndarray, title: str, unit: str, cmap: str = 'YlOrRd'):
+    """Plot a heatmap for resource usage (VRAM or time)."""
+    if grid.size == 0 or np.all(np.isnan(grid)):
+        ax.text(0.5, 0.5, "No data available", transform=ax.transAxes, fontsize=14,
+                ha='center', va='center', color='gray')
+        ax.set_title(title, fontsize=12)
+        return
+
+    im = ax.imshow(grid.T, origin='lower', aspect='auto', cmap=cmap)
+
+    # Add colorbar
+    cbar = ax.figure.colorbar(im, ax=ax, shrink=0.8)
+    cbar.set_label(unit, fontsize=10)
+
+    # Labels
+    ax.set_xlabel('Momentum Layers')
+    ax.set_ylabel('Controller Layers')
+    ax.set_title(title, fontsize=12)
+
+    # Set ticks
+    ax.set_xticks(range(grid.shape[0]))
+    ax.set_xticklabels(range(1, grid.shape[0] + 1))
+    ax.set_yticks(range(grid.shape[1]))
+    ax.set_yticklabels(range(1, grid.shape[1] + 1))
+
+    # Add value annotations for non-NaN cells
+    for i in range(grid.shape[0]):
+        for j in range(grid.shape[1]):
+            val = grid[i, j]
+            if not np.isnan(val):
+                text_color = 'white' if val > np.nanmean(grid) else 'black'
+                ax.text(i, j, f'{val:.1f}', ha='center', va='center',
+                       fontsize=7, color=text_color)
+
+
+def generate_resource_charts(results: Dict, output_dir: Path):
+    """Generate VRAM and execution time charts vs grid parameters."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+    fig.suptitle('Resource Usage vs Optimizer Depth', fontsize=16, fontweight='bold')
+
+    # MoE
+    moe_vram, moe_time, moe_stats = extract_resource_data(results.get("moe", []))
+
+    # TitanMAC
+    titan_vram, titan_time, titan_stats = extract_resource_data(results.get("titanmac", []))
+
+    # Plot MoE VRAM
+    plot_resource_heatmap(axes[0, 0], moe_vram,
+                         f"MoE: Peak VRAM (avg={moe_stats.get('vram_avg', 0):.1f} GB)",
+                         "GB", cmap='YlOrRd')
+
+    # Plot MoE Time
+    plot_resource_heatmap(axes[0, 1], moe_time,
+                         f"MoE: Execution Time (avg={moe_stats.get('time_avg', 0):.1f} min)",
+                         "minutes", cmap='YlGnBu')
+
+    # Plot TitanMAC VRAM
+    plot_resource_heatmap(axes[1, 0], titan_vram,
+                         f"TitanMAC: Peak VRAM (avg={titan_stats.get('vram_avg', 0):.1f} GB)",
+                         "GB", cmap='YlOrRd')
+
+    # Plot TitanMAC Time
+    plot_resource_heatmap(axes[1, 1], titan_time,
+                         f"TitanMAC: Execution Time (avg={titan_stats.get('time_avg', 0):.1f} min)",
+                         "minutes", cmap='YlGnBu')
+
+    plt.tight_layout()
+    plt.savefig(output_dir / "resource_usage.png", dpi=150)
+    plt.close()
+    print(f"Saved: {output_dir / 'resource_usage.png'}")
+
+    # Print summary
+    print("\nResource Usage Summary:")
+    print(f"  MoE VRAM: {moe_stats.get('vram_min', 0):.1f} - {moe_stats.get('vram_max', 0):.1f} GB (avg {moe_stats.get('vram_avg', 0):.1f})")
+    print(f"  MoE Time: {moe_stats.get('time_min', 0):.1f} - {moe_stats.get('time_max', 0):.1f} min (avg {moe_stats.get('time_avg', 0):.1f})")
+    print(f"  TitanMAC VRAM: {titan_stats.get('vram_min', 0):.1f} - {titan_stats.get('vram_max', 0):.1f} GB (avg {titan_stats.get('vram_avg', 0):.1f})")
+    print(f"  TitanMAC Time: {titan_stats.get('time_min', 0):.1f} - {titan_stats.get('time_max', 0):.1f} min (avg {titan_stats.get('time_avg', 0):.1f})")
+
+    return moe_stats, titan_stats
+
+
 def generate_per_experiment_charts(name: str, trials: List[Dict], baseline: Optional[Dict],
                                    output_dir: Path, is_nested: bool = True):
     """
@@ -375,13 +524,14 @@ Grid Coverage: {len(set((t['depth_params']['momentum_num_layers'],
         # Panel 4: Summary
         ax = axes[1, 1]
         ax.axis('off')
+        loss_str = f"{baseline_loss:.4f}" if baseline_loss else "N/A"
         summary_text = f"""
 SUMMARY
 
 Configuration: Muon + AdamW
 (Default hyperparameters)
 
-Val Loss: {baseline_loss:.4f if baseline_loss else 'N/A'}
+Val Loss: {loss_str}
 """
         ax.text(0.1, 0.9, summary_text, transform=ax.transAxes, fontsize=12,
                verticalalignment='top', fontfamily='monospace',
@@ -488,6 +638,10 @@ def generate_report(results: Dict, baselines: Dict, output_dir: Path):
     plt.savefig(output_dir / "comparison.png", dpi=150)
     plt.close()
     print(f"Saved: {output_dir / 'comparison.png'}")
+
+    # Chart 4: Resource usage (VRAM and time vs depth)
+    print("\nGenerating resource usage charts...")
+    generate_resource_charts(results, output_dir)
 
     # Save summary JSON
     summary = {

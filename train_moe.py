@@ -8,11 +8,24 @@ from torch.utils.data import DataLoader
 # Fix tokenizer parallelism warning when using DataLoader workers
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-from configs.moe_config import MoEModelConfig, GPU24GBMoEModelConfig
+from configs.moe_config import MoEModelConfig, GPU24GBMoEModelConfig, DebugMoEConfig
 from configs.dataset_config import DataConfig
 from training.trainer import train_moe_model
 from utils.helpers import set_seed
 from utils.logger import setup_logging
+
+
+def get_config(config_name: str) -> MoEModelConfig:
+    """Get config by name."""
+    configs = {
+        "default": GPU24GBMoEModelConfig,
+        "24gb": GPU24GBMoEModelConfig,
+        "168m": GPU24GBMoEModelConfig,  # 24gb IS 168M params
+        "debug": DebugMoEConfig,
+    }
+    if config_name not in configs:
+        raise ValueError(f"Unknown config: {config_name}. Choose from: {list(configs.keys())}")
+    return configs[config_name]()
 
 
 def print_system_info():
@@ -106,6 +119,7 @@ def main():
     print_system_info()
     set_seed(42)
     parser = argparse.ArgumentParser(description="Train MoE Model")
+    parser.add_argument("--config", type=str, default="168m", help="Config name: 168m, 24gb, debug")
     parser.add_argument("--muon_lr", type=float, help="Override Muon learning rate")
     parser.add_argument("--adamw_lr", type=float, help="Override AdamW learning rate")
     parser.add_argument("--max_steps", type=int, help="Override max_steps")
@@ -113,9 +127,8 @@ def main():
     parser.add_argument("--output_dir", type=str, default="./checkpoints", help="Output directory")
     args = parser.parse_args()
 
-    # For H100 uncomment MoEModelConfig, for small GPU uncomment GPU24GBMoEModelConfig
-    # config = MoEModelConfig()
-    config = GPU24GBMoEModelConfig()
+    # Get config by name
+    config = get_config(args.config)
 
     # Override config with args
     if args.muon_lr is not None:

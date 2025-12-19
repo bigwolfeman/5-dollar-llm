@@ -1,0 +1,52 @@
+======================================================================
+EXPERIMENT RESULTS SUMMARY
+Generated: 2025-12-16T01:07:16.140593
+Max Steps: 8000
+======================================================================
+
+Experiment                Val Loss     Val Acc      Perplexity   VRAM (GB)    Status    
+-------------------------------------------------------------------------------------
+titanmac                  1.0605       0.7420       2.89         17.29        completed 
+titanmac_nested           2.7943       0.4411       16.35        17.93        completed 
+
+======================================================================
+DETAILED RESULTS
+======================================================================
+
+
+--------------------------------------------------
+Experiment: titanmac
+Description: TitanMAC + Muon
+Status: completed
+Script: train_titanmac.py
+Arguments:
+  max_steps: 8000
+  experiment_name: titanmac_5000
+  muon_lr: 0.015533097160640025
+  adamw_lr: 0.007022787930614363
+Runtime: 57.46 minutes
+Metrics:
+  val_loss: 1.060500
+  val_accuracy: 0.742000
+  val_perplexity: 2.890000
+  peak_vram_gb: 17.290000
+
+--------------------------------------------------
+Experiment: titanmac_nested
+Description: TitanMAC + DeepNestedOptimizer
+Status: completed
+Script: train_titanmac_nested.py
+Arguments:
+  max_steps: 8000
+  experiment_name: titanmac_nested_5000
+  base_lr: 0.0004072398672148361
+  meta_lr: 9.089757036214503e-05
+  k_unroll: 5
+  momentum_hidden_dim: 64
+  controller_hidden_dim: 16
+Runtime: 59.60 minutes
+Metrics:
+  val_loss: 2.794300
+  val_accuracy: 0.441100
+  val_perplexity: 16.350000
+  peak_vram_gb: 17.930000

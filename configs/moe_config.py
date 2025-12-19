@@ -65,9 +65,9 @@ class GPU24GBMoEModelConfig(MoEModelConfig):
     num_experts: int = 8
     expert_top_k: int = 2
     
-    # Batch size
-    batch_size: int = 16
-    gradient_accumulation_steps: int = 1
+    # Batch size: batch=8 * grad_accum=2 = effective 16
+    batch_size: int = 8
+    gradient_accumulation_steps: int = 2
 
     # Training parameters (Optimized via sweep)
     muon_lr: float = 0.04

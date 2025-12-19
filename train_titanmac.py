@@ -34,6 +34,7 @@ if _project_root not in sys.path:
 from configs.titanmac_config import (
     TitanMACModelConfig,
     TitanMACGPU24GBConfig,
+    TitanMAC168MConfig,
     DebugTitanMACConfig,
 )
 from configs.dataset_config import DataConfig
@@ -44,6 +45,19 @@ from utils.logger import setup_logging
 
 # Import prepare_datasets from train_moe to reuse data pipeline
 from train_moe import prepare_datasets
+
+
+def get_config(config_name: str) -> TitanMACModelConfig:
+    """Get config by name."""
+    configs = {
+        "default": TitanMAC168MConfig,
+        "24gb": TitanMACGPU24GBConfig,
+        "168m": TitanMAC168MConfig,
+        "debug": DebugTitanMACConfig,
+    }
+    if config_name not in configs:
+        raise ValueError(f"Unknown config: {config_name}. Choose from: {list(configs.keys())}")
+    return configs[config_name]()
 
 
 def print_system_info():
@@ -162,6 +176,7 @@ def main():
     set_seed(42)
 
     parser = argparse.ArgumentParser(description="Train TitanMAC Model")
+    parser.add_argument("--config", type=str, default="168m", help="Config name: 168m, 24gb, debug")
     parser.add_argument("--muon_lr", type=float, help="Override Muon learning rate")
     parser.add_argument("--adamw_lr", type=float, help="Override AdamW learning rate")
     parser.add_argument("--steps", "--max_steps", type=int, dest="max_steps", help="Override max_steps")
@@ -175,9 +190,6 @@ def main():
         "--output_dir", type=str, default="./checkpoints", help="Output directory"
     )
     parser.add_argument(
-        "--debug", action="store_true", help="Use debug config for quick testing"
-    )
-    parser.add_argument(
         "--variant",
         type=str,
         choices=["MAC", "MAG", "MAL"],
@@ -186,14 +198,9 @@ def main():
     )
     args = parser.parse_args()
 
-    # Select configuration
-    if args.debug:
-        config = DebugTitanMACConfig()
-        print("Using DEBUG configuration (tiny model for quick testing)")
-    else:
-        # Use GPU24GB config for 4090/similar GPUs
-        config = TitanMACGPU24GBConfig()
-        print("Using GPU24GB configuration")
+    # Get config by name
+    config = get_config(args.config)
+    print(f"Using {args.config} configuration")
 
     # Override config with args
     if args.muon_lr is not None:

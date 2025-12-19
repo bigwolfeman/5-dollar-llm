@@ -247,7 +247,7 @@ def patch_titanmac_for_profiling():
 def patch_nested_optimizer_for_profiling():
     """Patch nested optimizer for profiling."""
     try:
-        from optimizers.nested_optimizer import DeepNestedOptimizer
+        from titans_core.opt import DeepNestedOptimizer
 
         original_step = DeepNestedOptimizer.step
         original_meta_step = getattr(DeepNestedOptimizer, '_simplified_meta_step', None)
@@ -355,7 +355,7 @@ def run_profiling(
 
     # Create optimizer
     print("\n[4/5] Creating optimizer...")
-    from optimizers.nested_optimizer import DeepNestedOptimizer, group_titanmac_params
+    from titans_core.opt import DeepNestedOptimizer, group_titanmac_params
 
     param_groups = group_titanmac_params(model, config)
     optimizer = DeepNestedOptimizer(

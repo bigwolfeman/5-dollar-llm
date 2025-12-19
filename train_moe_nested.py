@@ -36,13 +36,32 @@ import matplotlib.pyplot as plt
 # Fix tokenizer parallelism warning when using DataLoader workers
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-from configs.moe_config import MoEModelConfig, GPU24GBMoEModelConfig
+from configs.moe_config import MoEModelConfig, GPU24GBMoEModelConfig, DebugMoEConfig
 from configs.dataset_config import DataConfig
 from models.moe_llm import MoEMinimalLLM
-from optimizers.nested_optimizer import DeepNestedOptimizer, group_moe_params
+
+# Add TitanMAC path for nested optimizer imports
+import sys
+_titan_path = os.path.join(os.path.dirname(__file__), "111TitanMAC-Standalone")
+if _titan_path not in sys.path:
+    sys.path.insert(0, _titan_path)
+from titans_core.opt import DeepNestedOptimizer, group_moe_params
 from training.evaluation import evaluate_model
 from utils.helpers import set_seed
 from utils.logger import setup_logging
+
+
+def get_config(config_name: str) -> MoEModelConfig:
+    """Get config by name."""
+    configs = {
+        "default": GPU24GBMoEModelConfig,
+        "24gb": GPU24GBMoEModelConfig,
+        "168m": GPU24GBMoEModelConfig,  # 24gb IS 168M params
+        "debug": DebugMoEConfig,
+    }
+    if config_name not in configs:
+        raise ValueError(f"Unknown config: {config_name}. Choose from: {list(configs.keys())}")
+    return configs[config_name]()
 
 
 def print_system_info():
@@ -227,6 +246,7 @@ def train_moe_nested(
     print(f"  Embed parameters: {embed_numel:,}")
 
     # Create nested optimizer
+    use_cms = nested_config.get('use_cms_updates', False)
     optimizer = DeepNestedOptimizer(
         model=model,
         base_lr=nested_config['base_lr'],
@@ -240,7 +260,10 @@ def train_moe_nested(
         meta_update_freq=nested_config['meta_update_freq'],
         weight_decay=nested_config['weight_decay'],
         max_grad_norm=nested_config['max_grad_norm'],
+        use_cms_updates=use_cms,
     )
+    update_mode = "CMS (paper-aligned)" if use_cms else "AdamW (fallback)"
+    print(f"  Update mode: {update_mode}")
 
     # Create loss function for meta-updates
     loss_fn = create_loss_fn(config)
@@ -611,6 +634,7 @@ def main():
     set_seed(42)
 
     parser = argparse.ArgumentParser(description="Train MoE Model with Nested Optimizer")
+    parser.add_argument("--config", type=str, default="168m", help="Config name: 168m, 24gb, debug")
     parser.add_argument("--base_lr", type=float, default=3e-4, help="Base learning rate")
     parser.add_argument("--meta_lr", type=float, default=1e-4, help="Meta learning rate")
     parser.add_argument("--k_unroll", type=int, default=5, help="K-step unrolling for meta-update")
@@ -620,13 +644,16 @@ def main():
     parser.add_argument("--controller_num_layers", type=int, default=2, help="Number of layers in controller network")
     parser.add_argument("--use_unrolled", action="store_true",
                         help="Use full k-step unrolled meta-learning (WARNING: very memory intensive, ~3x VRAM)")
+    parser.add_argument("--use_cms", action="store_true",
+                        help="Use experimental CMS mode instead of AdamW. WARNING: CMS performs "
+                             "~2x worse than AdamW because it cannot learn adaptive per-param LR.")
     parser.add_argument("--steps", "--max_steps", type=int, dest="max_steps", help="Override max_steps")
     parser.add_argument("--experiment_name", type=str, default="moe_nested", help="Name of the experiment")
     parser.add_argument("--output_dir", type=str, default="./checkpoints", help="Output directory")
     args = parser.parse_args()
 
-    # Use GPU24GB config for smaller GPU
-    config = GPU24GBMoEModelConfig()
+    # Get config by name
+    config = get_config(args.config)
 
     # Override config with args
     if args.max_steps is not None:
@@ -641,6 +668,7 @@ def main():
         'meta_lr': args.meta_lr,
         'k_unroll': args.k_unroll,
         'use_unrolled': args.use_unrolled,  # False by default - SimplifiedMetaTrainer is much cheaper
+        'use_cms_updates': args.use_cms,  # False by default (AdamW + learned LR multipliers)
         'momentum_hidden_dim': args.momentum_hidden_dim,
         'momentum_num_layers': args.momentum_num_layers,
         'controller_hidden_dim': args.controller_hidden_dim,
