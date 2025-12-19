@@ -2,10 +2,9 @@
 """
 Comprehensive Grid Search: 168M Parameter Comparison
 
-Compares MoE, TitanMAC, and HOPE architectures with multiple optimizers:
+Compares MoE and TitanMAC architectures with multiple optimizers:
 - Muon+AdamW (baseline)
 - DeepNestedOptimizer (with 6x6 grid search)
-- AdamW (HOPE only)
 
 All models scaled to ~168M parameters for fair comparison.
 
@@ -21,8 +20,8 @@ Usage:
     python run_comprehensive_grid.py --mode grid --dry-run
 
 Estimated times (600 steps each):
-    - Baseline mode: ~7 configs × 2-4 min = 15-30 min
-    - Grid mode: 108 configs × 2-4 min = 3.5-7 hours
+    - Baseline mode: ~4 configs × 2-4 min = 8-16 min
+    - Grid mode: 72 configs × 2-4 min = 2.5-5 hours
 """
 
 import argparse
@@ -105,26 +104,7 @@ BASELINE_EXPERIMENTS = [
         momentum_layers=2,
         controller_layers=2,
     ),
-    ExperimentConfig(
-        name="hope_adamw",
-        model="hope",
-        optimizer="adamw",
-        description="HOPE 168M + AdamW (reference)",
-    ),
-    ExperimentConfig(
-        name="hope_muon",
-        model="hope",
-        optimizer="muon",
-        description="HOPE 168M + Muon+AdamW",
-    ),
-    ExperimentConfig(
-        name="hope_nested_best",
-        model="hope",
-        optimizer="nested",
-        description="HOPE 168M + DeepNested (best params)",
-        momentum_layers=2,
-        controller_layers=2,
-    ),
+    # HOPE removed - delta-rule memory too VRAM-intensive for 168M scale
 ]
 
 
@@ -136,7 +116,7 @@ def generate_grid_experiments() -> List[ExperimentConfig]:
     """Generate 6x6 grid experiments for each model."""
     experiments = []
 
-    for model in ["moe", "titanmac", "hope"]:
+    for model in ["moe", "titanmac"]:  # HOPE removed - delta-rule memory too VRAM-intensive
         for m in DEPTH_GRID:
             for c in DEPTH_GRID:
                 experiments.append(ExperimentConfig(
@@ -417,7 +397,7 @@ def main():
         type=str,
         choices=["baseline", "grid"],
         required=True,
-        help="baseline: Run 7 non-grid experiments. grid: Run 108 grid experiments.",
+        help="baseline: Run 4 non-grid experiments. grid: Run 72 grid experiments.",
     )
     parser.add_argument(
         "--steps",

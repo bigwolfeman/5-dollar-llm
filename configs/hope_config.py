@@ -125,9 +125,9 @@ class HOPE168MConfig(HOPEModelConfig):
     n_layers: int = 9
     d_ff: int = 4096
 
-    # Batch size: batch=8 * grad_accum=2 = effective 16
-    batch_size: int = 8
-    gradient_accumulation_steps: int = 2
+    # Batch size: batch=1 * grad_accum=16 = effective 16 (delta-rule memory is VRAM heavy)
+    batch_size: int = 1
+    gradient_accumulation_steps: int = 16
 
     # Training parameters
     adamw_lr: float = 1e-4  # Lower LR for larger model

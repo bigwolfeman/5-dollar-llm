@@ -370,7 +370,7 @@ def train_hope(
     config.vocab_size = len(tokenizer)
 
     # Prepare datasets
-    train_dataset, val_dataset = prepare_datasets(data_cfg, tokenizer, cache_dir=f"./processed_data/{experiment_name}")
+    train_dataset, val_dataset = prepare_datasets(data_cfg, tokenizer, cache_dir="./processed_data")
 
     train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=2)
     val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=2)
@@ -433,8 +433,11 @@ def train_hope(
                 model.eval()
                 val_losses = []
                 val_accs = []
+                eval_steps = getattr(config, 'eval_steps', 100)  # Limit eval batches
                 with torch.no_grad():
-                    for val_batch in val_loader:
+                    for eval_idx, val_batch in enumerate(val_loader):
+                        if eval_idx >= eval_steps:
+                            break
                         val_input = val_batch['input_ids'].to(device)
                         val_labels = val_batch['labels'].to(device)
                         val_logits = model(val_input)
@@ -470,8 +473,11 @@ def train_hope(
     # Final evaluation
     model.eval()
     final_val_losses = []
+    eval_steps = getattr(config, 'eval_steps', 100)  # Limit eval batches
     with torch.no_grad():
-        for val_batch in val_loader:
+        for eval_idx, val_batch in enumerate(val_loader):
+            if eval_idx >= eval_steps:
+                break
             val_input = val_batch['input_ids'].to(device)
             val_labels = val_batch['labels'].to(device)
             val_logits = model(val_input)

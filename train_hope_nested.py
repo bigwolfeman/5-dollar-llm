@@ -106,7 +106,7 @@ def train_hope_nested(
     config.vocab_size = len(tokenizer)
 
     # Prepare datasets
-    train_dataset, val_dataset = prepare_datasets(data_cfg, tokenizer, cache_dir=f"./processed_data/{experiment_name}")
+    train_dataset, val_dataset = prepare_datasets(data_cfg, tokenizer, cache_dir="./processed_data")
 
     train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=2)
     val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=2)
