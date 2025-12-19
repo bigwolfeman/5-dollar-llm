@@ -329,12 +329,12 @@ def prepare_datasets(data_cfg, tokenizer, cache_dir="./processed_data"):
     raw_val = Dataset.from_list(raw_samples[num_train:])
 
     print(f"Tokenizing {num_train} train samples...")
-    train_tokenized = tokenize_and_chunk(raw_train, tokenizer, data_cfg.seq_length)
-    train_final = finalize_dataset(train_tokenized)
+    train_tokenized = tokenize_and_chunk(raw_train, tokenizer, data_cfg)
+    train_final = finalize_dataset(train_tokenized, data_cfg)
 
     print(f"Tokenizing {num_val} val samples...")
-    val_tokenized = tokenize_and_chunk(raw_val, tokenizer, data_cfg.seq_length)
-    val_final = finalize_dataset(val_tokenized)
+    val_tokenized = tokenize_and_chunk(raw_val, tokenizer, data_cfg)
+    val_final = finalize_dataset(val_tokenized, data_cfg)
 
     print("Saving cached datasets...")
     train_final.save_to_disk(train_cache)
@@ -527,7 +527,11 @@ def main():
     set_seed(42)
 
     config = get_config(args.config)
-    data_cfg = DataConfig()
+    data_cfg = DataConfig(
+        seq_length=config.max_seq_len,
+        num_samples=config.num_documents,
+        cache_dir="./hf_cache",
+    )
 
     train_hope(
         config=config,

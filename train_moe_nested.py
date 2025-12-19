@@ -465,7 +465,12 @@ def train_moe_nested(
                 metrics_history['learning_rates'].append(effective_lrs[0])
                 metrics_history['lr_multipliers_core'].append(lr_mults[0].item())
                 metrics_history['lr_multipliers_embed'].append(lr_mults[1].item())
-                metrics_history['meta_losses'].append(optimizer.last_meta_loss if optimizer.last_meta_loss else 0.0)
+                meta_loss = optimizer.last_meta_loss
+                if meta_loss is not None:
+                    meta_loss = meta_loss.item() if hasattr(meta_loss, 'item') else float(meta_loss)
+                else:
+                    meta_loss = 0.0
+                metrics_history['meta_losses'].append(meta_loss)
 
                 print(f"\nStep {step}: Val Loss: {eval_metrics['val_loss']:.4f}, "
                       f"Val Aux Loss: {eval_metrics['val_aux_loss']:.4f}, "
@@ -496,7 +501,12 @@ def train_moe_nested(
     metrics_history['learning_rates'].append(effective_lrs[0])
     metrics_history['lr_multipliers_core'].append(lr_mults[0].item())
     metrics_history['lr_multipliers_embed'].append(lr_mults[1].item())
-    metrics_history['meta_losses'].append(optimizer.last_meta_loss if optimizer.last_meta_loss else 0.0)
+    meta_loss = optimizer.last_meta_loss
+    if meta_loss is not None:
+        meta_loss = meta_loss.item() if hasattr(meta_loss, 'item') else float(meta_loss)
+    else:
+        meta_loss = 0.0
+    metrics_history['meta_losses'].append(meta_loss)
 
     total_time = (time.time() - train_start_time) / 60
 

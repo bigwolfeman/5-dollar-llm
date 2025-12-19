@@ -324,7 +324,11 @@ def main():
     set_seed(42)
 
     config = get_config(args.config)
-    data_cfg = DataConfig()
+    data_cfg = DataConfig(
+        seq_length=config.max_seq_len,
+        num_samples=config.num_documents,
+        cache_dir="./hf_cache",
+    )
 
     nested_config = {
         'base_lr': args.base_lr,

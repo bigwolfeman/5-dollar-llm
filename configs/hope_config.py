@@ -37,6 +37,9 @@ class HOPEModelConfig:
     max_seq_len: int = 1024
     chunk_size: int = 64  # Chunk size for delta-rule memory processing
 
+    # Data
+    num_documents: int = 250000
+
     # Training parameters
     batch_size: int = 16
     max_steps: int = 10000
@@ -129,8 +132,9 @@ class HOPE168MConfig(HOPEModelConfig):
     # Training parameters
     adamw_lr: float = 1e-4  # Lower LR for larger model
 
-    # Sequence parameters
+    # Data
     max_seq_len: int = 1024
+    num_documents: int = 250000  # Match MoE/TitanMAC
     chunk_size: int = 64
 
     # Logging
@@ -167,6 +171,7 @@ class DebugHOPEConfig(HOPEModelConfig):
     adamw_lr: float = 1e-3
 
     max_seq_len: int = 128
+    num_documents: int = 100
     chunk_size: int = 32
 
     log_milestones: Tuple[int, ...] = (10, 50, 80)

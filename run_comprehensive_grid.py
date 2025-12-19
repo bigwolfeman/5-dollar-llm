@@ -57,7 +57,7 @@ BEST_NESTED_PARAMS = {
 }
 
 # Grid search space (6x6 = 36 configs)
-DEPTH_GRID = [1, 2, 4, 6, 8, 10]
+DEPTH_GRID = [1, 2, 3, 4, 5, 6]
 
 
 @dataclass
