@@ -344,7 +344,7 @@ def train_model(
         }, checkpoint_path)
         print(f"   💾 Model saved to {checkpoint_path}")
     
-    return model, final_eval, metrics_history
+    return model, final_eval, metrics_history, total_time_seconds
 
 
 def plot_training_metrics(metrics_history: Dict, output_path: Path):
@@ -584,7 +584,7 @@ def train_minimal_llm(
     # ============================================
     train_start = time.time()
     
-    model, final_eval, metrics_history = train_model(
+    model, final_eval, metrics_history, total_training_time = train_model(
         model=model,
         config=config,
         train_loader=train_loader,  # Creates fresh iterator in train_model
@@ -600,6 +600,5 @@ def train_minimal_llm(
         log_every=getattr(config, 'log_every', 100),
     )
     
-    total_training_time = time.time() - train_start
-
+    
     return model, final_eval, metrics_history, setup_time, total_training_time

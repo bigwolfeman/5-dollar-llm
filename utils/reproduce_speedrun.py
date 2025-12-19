@@ -6,13 +6,14 @@ import json
 import os
 import time
 import statistics
+from utils.helpers import format_time
 
 def run_training(run_id):
     print(f"\n🚀 Starting Run {run_id}...")
     experiment_name = f"repro_run_{run_id}"
     cmd = [
         "python", "train_llm.py",
-        "--target_train_loss", "3.5",
+        "--target_train_loss", "6.7",
         "--experiment_name", experiment_name,
         "--compile", "true",
         "--dataset_path", "processed_data/speedrun_40M"
@@ -46,7 +47,7 @@ def run_training(run_id):
             # We can also calculate tokens-per-second etc.
             return {
                 "run_id": run_id,
-                "duration_ms": data.get("total_time_seconds", 0) * 1000 or data.get("total_time_minutes", 0) * 60000,
+                "duration_s": data.get("total_time_seconds", 0) or data.get("total_time_minutes", 0) * 60,
                 "steps": data.get("actual_steps", 0),
                 "success": True
             }
@@ -55,7 +56,7 @@ def run_training(run_id):
         return {"run_id": run_id, "success": False}
 
 def main():
-    num_runs = 2
+    num_runs = 4
     results = []
     
     print(f"=== Reproducing Speedrun 1 ({num_runs} runs) ===")
@@ -69,7 +70,7 @@ def main():
         print("No successful runs.")
         return
         
-    durations = [r["duration_ms"] for r in results]
+    durations = [r["duration_s"] for r in results]
     steps = [r["steps"] for r in results]
     
     print("\n" + "="*50)
@@ -78,15 +79,17 @@ def main():
     print(f"Number of runs: {len(results)}")
     
     if len(durations) > 1:
-        print(f"Time (ms):   Mean = {statistics.mean(durations):.0f}ms, StdDev = {statistics.stdev(durations):.2f}ms")
+        mean_dur = statistics.mean(durations)
+        std_dur = statistics.stdev(durations)
+        print(f"Time:        Mean = {format_time(mean_dur)}, StdDev = {std_dur:.2f}s")
         print(f"Steps:       Mean = {statistics.mean(steps):.2f}, StdDev = {statistics.stdev(steps):.2f}")
     else:
-        print(f"Time (ms):   {durations[0]:.0f}ms")
+        print(f"Time:        {format_time(durations[0])}")
         print(f"Steps:       {steps[0]}")
         
     print("\nDetailed Results:")
     for r in results:
-        print(f"  Run {r['run_id']}: {r['duration_ms']:.0f}ms, {r['steps']} steps")
+        print(f"  Run {r['run_id']}: {format_time(r['duration_s'])}, {r['steps']} steps")
 
 if __name__ == "__main__":
     main()
