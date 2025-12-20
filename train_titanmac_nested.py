@@ -246,6 +246,19 @@ def train_titanmac_nested(
     model = create_titanmac_model(config)
     model = model.to(device)
 
+    # Apply torch.compile if speedy mode enabled
+    use_torch_compile = nested_config.get('use_torch_compile', False)
+    if use_torch_compile:
+        print("  Applying torch.compile to model (this may take a minute on first run)...")
+        # Disable donated buffers - required for neural memory's retain_graph=True
+        # See: https://pytorch.org/docs/stable/torch.compiler_faq.html
+        from torch._functorch import config as functorch_config
+        functorch_config.donated_buffer = False
+        # Enable TensorFloat32 for faster matmuls on Ampere/Ada/Hopper GPUs
+        torch.set_float32_matmul_precision('high')
+        model = torch.compile(model, mode='reduce-overhead')
+        print("  torch.compile: enabled (donated_buffer=False, TF32=high)")
+
     # Enable gradient checkpointing if configured
     if getattr(config, 'use_gradient_checkpointing', False):
         model.enable_gradient_checkpointing()
@@ -263,6 +276,10 @@ def train_titanmac_nested(
 
     # Create nested optimizer with TitanMAC param groups
     use_cms = nested_config.get('use_cms_updates', True)
+    use_cuda_graph = nested_config.get('use_cuda_graph', False)
+    use_compile = nested_config.get('use_compile', False)
+    controller_update_freq = nested_config.get('controller_update_freq', 1)
+
     optimizer = DeepNestedOptimizer(
         model=model,
         base_lr=nested_config['base_lr'],
@@ -277,9 +294,14 @@ def train_titanmac_nested(
         weight_decay=nested_config['weight_decay'],
         max_grad_norm=nested_config['max_grad_norm'],
         use_cms_updates=use_cms,
+        use_cuda_graph=use_cuda_graph,
+        use_compile=use_compile,
+        controller_update_freq=controller_update_freq,
     )
     update_mode = "CMS (paper-aligned)" if use_cms else "AdamW (fallback)"
     print(f"  Update mode: {update_mode}")
+    if use_cuda_graph or use_compile:
+        print(f"  Speedy mode: CUDA graph={use_cuda_graph}, compile={use_compile}, ctrl_freq={controller_update_freq}")
 
     # Resume from checkpoint if provided
     start_step = 0
@@ -309,11 +331,12 @@ def train_titanmac_nested(
     k_unroll = nested_config['k_unroll']
     train_batch_buffer = deque(maxlen=k_unroll + 2)
 
-    # NOTE: AMP is disabled for TitanMAC due to neural memory gradient issues
-    # The neural memory uses torch.autograd.grad which fails with mixed precision
-    use_amp = False
-    if getattr(config, 'use_amp', False):
-        print("  WARNING: AMP disabled for TitanMAC (neural memory compatibility)")
+    # AMP setup - use if speedy mode enabled
+    use_amp = nested_config.get('use_amp', False)
+    scaler = torch.amp.GradScaler('cuda') if use_amp else None
+    if use_amp:
+        print("  AMP (mixed precision): enabled")
+        print("  Note: Neural memory may have issues with AMP - watch for NaN losses")
 
     # Reset peak memory stats for accurate tracking
     if torch.cuda.is_available():
@@ -390,28 +413,48 @@ def train_titanmac_nested(
             # Store batch in buffer for meta-updates
             train_batch_buffer.append({'input_ids': x, 'labels': y})
 
-            # Forward pass (no AMP for TitanMAC)
+            # Forward pass with optional AMP
             optimizer.zero_grad()
 
-            logits, aux_loss = model(x, return_aux_loss=True)
-            shift_logits = logits[:, :-1, :].contiguous()
-            shift_labels = y[:, 1:].contiguous()
-            ce_loss = F.cross_entropy(
-                shift_logits.view(-1, config.vocab_size),
-                shift_labels.view(-1)
-            )
+            if use_amp:
+                with torch.amp.autocast('cuda'):
+                    logits, aux_loss = model(x, return_aux_loss=True)
+                    shift_logits = logits[:, :-1, :].contiguous()
+                    shift_labels = y[:, 1:].contiguous()
+                    ce_loss = F.cross_entropy(
+                        shift_logits.view(-1, config.vocab_size),
+                        shift_labels.view(-1)
+                    )
+                    total_loss = ce_loss
+                    if aux_loss is not None:
+                        total_loss = total_loss + aux_loss
+                    loss = total_loss / config.gradient_accumulation_steps
 
-            total_loss = ce_loss
-            if aux_loss is not None:
-                total_loss = total_loss + aux_loss
+                # Backward with scaler
+                scaler.scale(loss).backward()
 
-            loss = total_loss / config.gradient_accumulation_steps
-            loss.backward()
+                # Optimizer step with scaler
+                if (step + 1) % config.gradient_accumulation_steps == 0:
+                    scaler.unscale_(optimizer.base_optimizer)
+                    optimizer.step(loss_value=total_loss.item())
+                    scaler.update()
+            else:
+                logits, aux_loss = model(x, return_aux_loss=True)
+                shift_logits = logits[:, :-1, :].contiguous()
+                shift_labels = y[:, 1:].contiguous()
+                ce_loss = F.cross_entropy(
+                    shift_logits.view(-1, config.vocab_size),
+                    shift_labels.view(-1)
+                )
+                total_loss = ce_loss
+                if aux_loss is not None:
+                    total_loss = total_loss + aux_loss
+                loss = total_loss / config.gradient_accumulation_steps
+                loss.backward()
 
-            # Optimizer step
-            if (step + 1) % config.gradient_accumulation_steps == 0:
-                # Step with loss value for controller
-                optimizer.step(loss_value=total_loss.item())
+                # Optimizer step
+                if (step + 1) % config.gradient_accumulation_steps == 0:
+                    optimizer.step(loss_value=total_loss.item())
 
             # Logging
             if step % 100 == 0:
@@ -739,14 +782,18 @@ def main():
     parser.add_argument("--meta_lr", type=float, default=1e-4, help="Meta learning rate")
     parser.add_argument("--k_unroll", type=int, default=5, help="K-step unrolling for meta-update")
     parser.add_argument("--momentum_hidden_dim", type=int, default=64, help="Hidden dimension for momentum network")
-    parser.add_argument("--momentum_num_layers", type=int, default=2, help="Number of layers in momentum network")
+    parser.add_argument("--momentum_num_layers", type=int, default=4, help="Number of layers in momentum network (winner: 4)")
     parser.add_argument("--controller_hidden_dim", type=int, default=32, help="Hidden dimension for controller network")
-    parser.add_argument("--controller_num_layers", type=int, default=2, help="Number of layers in controller network")
+    parser.add_argument("--controller_num_layers", type=int, default=5, help="Number of layers in controller network (winner: 5)")
     parser.add_argument("--use_unrolled", action="store_true",
                         help="Use full k-step unrolled meta-learning (WARNING: very memory intensive)")
     parser.add_argument("--use_cms", action="store_true",
                         help="Use experimental CMS mode instead of AdamW. WARNING: CMS performs "
                              "~2x worse than AdamW because it cannot learn adaptive per-param LR.")
+    parser.add_argument("--speedy", action="store_true",
+                        help="Enable performance optimizations: torch.compile on model, "
+                             "AMP (mixed precision), and controller batching. "
+                             "Expect 2-3x speedup on first run after compilation warmup.")
     parser.add_argument("--variant", type=str, default="MAG", choices=["MAC", "MAG", "MAL"],
                         help="TitanMAC variant to use")
     parser.add_argument("--steps", "--max_steps", type=int, dest="max_steps", help="Override max_steps")
@@ -784,6 +831,13 @@ def main():
         'meta_update_freq': config.eval_every,
         'weight_decay': config.weight_decay,
         'max_grad_norm': config.grad_clip,
+        # Performance optimizations (--speedy flag)
+        # Note: CUDA graphs conflict with neural memory's retain_graph=True
+        'use_cuda_graph': False,  # Disabled - conflicts with neural memory
+        'use_compile': False,  # For optimizer (disabled)
+        'use_torch_compile': args.speedy,  # For model - significant speedup
+        'use_amp': args.speedy,  # Mixed precision - significant speedup
+        'controller_update_freq': 10 if args.speedy else 1,
     }
 
     print("Loading dataset with Hugging Face Datasets API...")
