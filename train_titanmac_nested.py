@@ -256,8 +256,12 @@ def train_titanmac_nested(
         functorch_config.donated_buffer = False
         # Enable TensorFloat32 for faster matmuls on Ampere/Ada/Hopper GPUs
         torch.set_float32_matmul_precision('high')
-        model = torch.compile(model, mode='reduce-overhead')
-        print("  torch.compile: enabled (donated_buffer=False, TF32=high)")
+        # Note: fullgraph=True is incompatible with neural memory because:
+        # - torch.autograd.grad() is non-traceable
+        # - @torch._dynamo.disable creates a graph break, which fullgraph prohibits
+        # We use dynamic=False to prevent recompilation on different input shapes
+        model = torch.compile(model, mode='reduce-overhead', dynamic=False)
+        print("  torch.compile: enabled (dynamic=False, TF32=high)")
 
     # Enable gradient checkpointing if configured
     if getattr(config, 'use_gradient_checkpointing', False):
@@ -797,6 +801,10 @@ def main():
     parser.add_argument("--variant", type=str, default="MAG", choices=["MAC", "MAG", "MAL"],
                         help="TitanMAC variant to use")
     parser.add_argument("--steps", "--max_steps", type=int, dest="max_steps", help="Override max_steps")
+    parser.add_argument("--eval_every", type=int, default=None,
+                        help="Evaluate every N steps (default: from config, typically 50)")
+    parser.add_argument("--eval_steps", type=int, default=None,
+                        help="Number of eval batches per evaluation (default: from config, typically 100)")
     parser.add_argument("--experiment_name", type=str, default="titanmac_nested", help="Name of the experiment")
     parser.add_argument("--output_dir", type=str, default="./checkpoints", help="Output directory")
     parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from")
@@ -809,6 +817,12 @@ def main():
     # Override config with args
     if args.max_steps is not None:
         config.max_steps = args.max_steps
+
+    if args.eval_every is not None:
+        config.eval_every = args.eval_every
+
+    if args.eval_steps is not None:
+        config.eval_steps = args.eval_steps
 
     if args.variant:
         config.titans_variant = args.variant
