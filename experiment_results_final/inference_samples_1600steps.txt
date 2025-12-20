@@ -1,0 +1,163 @@
+Skipping import of cpp extensions due to incompatible torch version 2.9.1+cu128 for torchao version 0.14.1             Please see https://github.com/pytorch/ao/issues/2919 for more info
+======================================================================
+INFERENCE SAMPLE GENERATOR
+======================================================================
+Device: cuda
+Loading tokenizer...
+
+Found 4 checkpoints:
+  - moe_muon
+  - moe_nested_winner
+  - titanmac_muon
+  - titanmac_nested_winner
+
+======================================================================
+MODEL: moe_muon
+======================================================================
+Loading checkpoints_168m/moe_muon/final_model.pt...
+Model loaded successfully
+
+--- Prompt 1 ---
+Input: The meaning of life is
+Output: The meaning of life is that it is that people can be really different because they speak differently than others. This means that it can be a lot of money that we can take on to do and want to make sure it is safe of all things.
+
+To help us
+
+--- Prompt 2 ---
+Input: In the year 2050, artificial intelligence will
+Output: In the year 2050, artificial intelligence will continue to have taken place in many areas of life, including the COVID-19 pandemic. This chapter will delve into the intricate relationship between automation, robotics, and automation, drawing on their potential applications in the industry. We will also examine case studies
+
+--- Prompt 3 ---
+Input: Once upon a time, in a kingdom far away,
+Output: Once upon a time, in a kingdom far away, there was a man named Timmy who lived in a land far away from a land filled with water and water. He was a group of people who lived in a land and had a special place in a forest. They were big and strong, and they
+
+======================================================================
+MODEL: moe_nested_winner
+======================================================================
+Loading checkpoints_168m/moe_nested_winner/final_model.pt...
+Model loaded successfully
+
+--- Prompt 1 ---
+Input: The meaning of life is
+Output: The meaning of life is the ability to work together, and the ways in which communities interact with the environment. They can also provide more, access to healthcare, and how they interact with the environment.
+
+In conclusion, understanding how this course unit is important to appreciate the
+
+--- Prompt 2 ---
+Input: In the year 2050, artificial intelligence will
+Output: In the year 2050, artificial intelligence will be a popular and fundamental aspect of a 1901. In the bustling town of New York, there was a famous scientist named The British Union, located in a small town called Harmonyville. The Great country of Canada was the war, who
+
+--- Prompt 3 ---
+Input: Once upon a time, in a kingdom far away,
+Output: Once upon a time, in a kingdom far away, there was a bright smile, a man named Jamie. She was a friendly superhero named Timmy. He was like a big word that was okay; she was a bit that makes a look for us. In this chapter, we will explore the concept of
+
+======================================================================
+MODEL: titanmac_muon
+======================================================================
+Loading checkpoints_168m/titanmac_muon/final_model.pt...
+Model loaded successfully
+
+--- Prompt 1 ---
+Input: The meaning of life is
+Output: The meaning of life is.
+
+These are just some of the amazing ways living beings and their environments work well together. This course unit will explore how these communities can be influenced by the themes of love, compassion, and connection to nature and others. We will also delve
+
+--- Prompt 2 ---
+Input: In the year 2050, artificial intelligence will
+Output: In the year 2050, artificial intelligence will significantly impact the outcome of the internet. This chapter will delve deep into the application of memory processing and its role in addressing various challenges affecting individuals who may have had on their own work.
+
+Before discussing the specific application of the human interaction process within
+
+--- Prompt 3 ---
+Input: Once upon a time, in a kingdom far away,
+Output: Once upon a time, in a kingdom far away, there lived three amazing women named S. R.S. B. R., D.S. R.B. R.M.M.L.C. M.L.W.H.M.R. R.M.
+
+======================================================================
+MODEL: titanmac_nested_winner
+======================================================================
+Loading checkpoints_168m/titanmac_nested_winner/checkpoint.pt...
+Model loaded successfully
+
+--- Prompt 1 ---
+Input: The meaning of life is
+Output: The meaning of life is the purpose of maintaining balance and understanding.
+
+III. Real-Life Applications
+Recent advancements in technology advances in this course unit, we delve into the intricacies of this field. We have explored various techniques and techniques that have gained significant attention in modern
+
+--- Prompt 2 ---
+Input: In the year 2050, artificial intelligence will
+Output: In the year 2050, artificial intelligence will enable individuals to navigate complex discussions and analyze different aspects of the context and relevance of this context.
+
+### Step 1: What is a Literary Exploration?
+
+Key tip: Look for a comprehensive guide on this chapter, focusing on the ongoing
+
+--- Prompt 3 ---
+Input: Once upon a time, in a kingdom far away,
+Output: Once upon a time, in a kingdom far away, so it's a big place called the "a" of the class. This helps build bridges between people and communities to build things more effectively.
+
+One of the most important features of the game is its use. We can also use the use
+
+======================================================================
+SUMMARY COMPARISON
+======================================================================
+
+### Prompt 1: "The meaning of life is"
+--------------------------------------------------
+
+[moe_muon]
+The meaning of life is that it is that people can be really different because they speak differently than others. This means that it can be a lot of money that we can take on to do and want to make su...
+
+[moe_nested_winner]
+The meaning of life is the ability to work together, and the ways in which communities interact with the environment. They can also provide more, access to healthcare, and how they interact with the e...
+
+[titanmac_muon]
+The meaning of life is.
+
+These are just some of the amazing ways living beings and their environments work well together. This course unit will explore how these communities can be influenced by the t...
+
+[titanmac_nested_winner]
+The meaning of life is the purpose of maintaining balance and understanding.
+
+III. Real-Life Applications
+Recent advancements in technology advances in this course unit, we delve into the intricacies ...
+
+### Prompt 2: "In the year 2050, artificial intelligence will"
+--------------------------------------------------
+
+[moe_muon]
+In the year 2050, artificial intelligence will continue to have taken place in many areas of life, including the COVID-19 pandemic. This chapter will delve into the intricate relationship between auto...
+
+[moe_nested_winner]
+In the year 2050, artificial intelligence will be a popular and fundamental aspect of a 1901. In the bustling town of New York, there was a famous scientist named The British Union, located in a small...
+
+[titanmac_muon]
+In the year 2050, artificial intelligence will significantly impact the outcome of the internet. This chapter will delve deep into the application of memory processing and its role in addressing vario...
+
+[titanmac_nested_winner]
+In the year 2050, artificial intelligence will enable individuals to navigate complex discussions and analyze different aspects of the context and relevance of this context.
+
+### Step 1: What is a Lit...
+
+### Prompt 3: "Once upon a time, in a kingdom far away,"
+--------------------------------------------------
+
+[moe_muon]
+Once upon a time, in a kingdom far away, there was a man named Timmy who lived in a land far away from a land filled with water and water. He was a group of people who lived in a land and had a specia...
+
+[moe_nested_winner]
+Once upon a time, in a kingdom far away, there was a bright smile, a man named Jamie. She was a friendly superhero named Timmy. He was like a big word that was okay; she was a bit that makes a look fo...
+
+[titanmac_muon]
+Once upon a time, in a kingdom far away, there lived three amazing women named S. R.S. B. R., D.S. R.B. R.M.M.L.C. M.L.W.H.M.R. R.M.
+
+[titanmac_nested_winner]
+Once upon a time, in a kingdom far away, so it's a big place called the "a" of the class. This helps build bridges between people and communities to build things more effectively.
+
+One of the most imp...
+
+======================================================================
+INFERENCE COMPLETE
+======================================================================

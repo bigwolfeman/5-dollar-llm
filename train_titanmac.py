@@ -196,6 +196,7 @@ def main():
         default=None,
         help="TitanMAC variant (default: MAG)",
     )
+    parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from (model state only)")
     args = parser.parse_args()
 
     # Get config by name

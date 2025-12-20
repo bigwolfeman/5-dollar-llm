@@ -15,6 +15,9 @@ Usage:
     # Grid mode: Run 6x6 nested optimizer grid search
     python run_comprehensive_grid.py --mode grid --steps 600
 
+    # Winners mode: Run top nested configs + Muon baselines for extended training
+    python run_comprehensive_grid.py --mode winners --steps 5000
+
     # Dry run: Validate configurations without GPU
     python run_comprehensive_grid.py --mode baseline --dry-run
     python run_comprehensive_grid.py --mode grid --dry-run
@@ -22,6 +25,7 @@ Usage:
 Estimated times (600 steps each):
     - Baseline mode: ~4 configs × 2-4 min = 8-16 min
     - Grid mode: 72 configs × 2-4 min = 2.5-5 hours
+    - Winners mode: 4 configs × N min (depends on --steps)
 """
 
 import argparse
@@ -131,6 +135,103 @@ def generate_grid_experiments() -> List[ExperimentConfig]:
     return experiments
 
 
+def generate_winners_experiments(results_dir: str = RESULTS_DIR) -> List[ExperimentConfig]:
+    """
+    Generate experiments for winners mode.
+
+    Reads grid_results.json to find:
+    - Top 1 MoE nested config (lowest val_loss)
+    - Top 1 TitanMAC nested config (lowest val_loss)
+
+    Plus Muon baselines:
+    - moe_muon
+    - titanmac_muon
+
+    Returns 4 experiments total.
+    """
+    import re
+
+    experiments = []
+
+    # Add Muon baselines
+    experiments.append(ExperimentConfig(
+        name="moe_muon",
+        model="moe",
+        optimizer="muon",
+        description="MoE 168M + Muon+AdamW (baseline)",
+    ))
+    experiments.append(ExperimentConfig(
+        name="titanmac_muon",
+        model="titanmac",
+        optimizer="muon",
+        description="TitanMAC 168M + Muon+AdamW (baseline)",
+    ))
+
+    # Load grid results
+    grid_file = Path(results_dir) / "grid_results.json"
+    if not grid_file.exists():
+        print(f"WARNING: {grid_file} not found. Run --mode grid first.")
+        print("Falling back to default best params (M=2, C=2)")
+        # Fallback to default best params
+        experiments.append(ExperimentConfig(
+            name="moe_nested_winner",
+            model="moe",
+            optimizer="nested",
+            description="MoE 168M + DeepNested (M=2, C=2 fallback)",
+            momentum_layers=2,
+            controller_layers=2,
+        ))
+        experiments.append(ExperimentConfig(
+            name="titanmac_nested_winner",
+            model="titanmac",
+            optimizer="nested",
+            description="TitanMAC 168M + DeepNested (M=2, C=2 fallback)",
+            momentum_layers=2,
+            controller_layers=2,
+        ))
+        return experiments
+
+    with open(grid_file) as f:
+        grid_results = json.load(f)
+
+    # Find top 1 for each model
+    for model in ["moe", "titanmac"]:
+        model_results = [
+            r for r in grid_results
+            if r.get("status") == "success" and model in r["name"].lower()
+        ]
+
+        if not model_results:
+            print(f"WARNING: No successful {model} results found. Using default M=2, C=2.")
+            m_layers, c_layers = 2, 2
+        else:
+            # Sort by val_loss and get best
+            best = min(model_results, key=lambda x: x.get("metrics", {}).get("val_loss", float("inf")))
+
+            # Parse M and C from name like "moe_nested_M3_C2"
+            match = re.search(r"_M(\d+)_C(\d+)", best["name"])
+            if match:
+                m_layers = int(match.group(1))
+                c_layers = int(match.group(2))
+            else:
+                m_layers, c_layers = 2, 2
+
+            best_loss = best.get("metrics", {}).get("val_loss", "N/A")
+            print(f"  {model.upper()} winner: M={m_layers}, C={c_layers} (val_loss={best_loss:.4f})")
+
+        model_upper = "TitanMAC" if model == "titanmac" else "MoE"
+        experiments.append(ExperimentConfig(
+            name=f"{model}_nested_winner",
+            model=model,
+            optimizer="nested",
+            description=f"{model_upper} 168M + DeepNested (M={m_layers}, C={c_layers} - WINNER)",
+            momentum_layers=m_layers,
+            controller_layers=c_layers,
+        ))
+
+    return experiments
+
+
 # ============================================================================
 # Training Scripts
 # ============================================================================
@@ -156,10 +257,25 @@ def get_train_script(model: str, optimizer: str) -> str:
     raise ValueError(f"Unknown model+optimizer: {model}+{optimizer}")
 
 
+def find_checkpoint(experiment_dir: Path) -> Optional[Path]:
+    """Find an existing checkpoint in the experiment directory."""
+    if not experiment_dir.exists():
+        return None
+
+    # Check for checkpoint files in order of preference
+    for ckpt_name in ["model.pt", "final_model.pt", "checkpoint.pt"]:
+        ckpt_path = experiment_dir / ckpt_name
+        if ckpt_path.exists():
+            return ckpt_path
+
+    return None
+
+
 def build_command(
     experiment: ExperimentConfig,
     steps: int,
     output_dir: str,
+    resume: bool = False,
 ) -> List[str]:
     """Build the command to run an experiment."""
     script = get_train_script(experiment.model, experiment.optimizer)
@@ -187,6 +303,14 @@ def build_command(
         if experiment.controller_layers is not None:
             cmd.extend(["--controller_num_layers", str(experiment.controller_layers)])
 
+    # Check for existing checkpoint and add --resume if found
+    if resume:
+        experiment_path = Path(output_dir) / experiment.name
+        checkpoint = find_checkpoint(experiment_path)
+        if checkpoint:
+            cmd.extend(["--resume", str(checkpoint)])
+            print(f"  [Resume] Found checkpoint: {checkpoint}")
+
     return cmd
 
 
@@ -199,9 +323,10 @@ def run_experiment(
     steps: int,
     output_dir: str,
     dry_run: bool = False,
+    resume: bool = False,
 ) -> Dict[str, Any]:
     """Run a single experiment."""
-    cmd = build_command(experiment, steps, output_dir)
+    cmd = build_command(experiment, steps, output_dir, resume=resume)
 
     print(f"\n{'='*70}")
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {experiment.description}")
@@ -395,9 +520,9 @@ def main():
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["baseline", "grid"],
+        choices=["baseline", "grid", "winners"],
         required=True,
-        help="baseline: Run 4 non-grid experiments. grid: Run 72 grid experiments.",
+        help="baseline: Run 4 non-grid experiments. grid: Run 72 grid experiments. winners: Run top nested + Muon baselines.",
     )
     parser.add_argument(
         "--steps",
@@ -427,8 +552,11 @@ def main():
     # Select experiments based on mode
     if args.mode == "baseline":
         experiments = BASELINE_EXPERIMENTS
-    else:
+    elif args.mode == "grid":
         experiments = generate_grid_experiments()
+    elif args.mode == "winners":
+        print("\nLoading winners from grid search results...")
+        experiments = generate_winners_experiments(args.results_dir)
 
     print(f"""
 {'#'*70}
@@ -458,6 +586,9 @@ Configuration:
     all_results = []
     start_time = time.time()
 
+    # Enable resume for winners mode
+    use_resume = (args.mode == "winners")
+
     for i, experiment in enumerate(experiments, 1):
         print(f"\n[{i}/{len(experiments)}] Starting {experiment.name}...")
         result = run_experiment(
@@ -465,6 +596,7 @@ Configuration:
             args.steps,
             args.checkpoint_dir,
             dry_run=args.dry_run,
+            resume=use_resume,
         )
         all_results.append(result)
 

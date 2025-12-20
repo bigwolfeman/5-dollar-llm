@@ -1,0 +1,182 @@
+Skipping import of cpp extensions due to incompatible torch version 2.9.1+cu128 for torchao version 0.14.1             Please see https://github.com/pytorch/ao/issues/2919 for more info
+======================================================================
+INFERENCE SAMPLE GENERATOR
+======================================================================
+Device: cuda
+Loading tokenizer...
+
+Found 4 checkpoints:
+  - moe_muon
+  - moe_nested_winner
+  - titanmac_muon
+  - titanmac_nested_winner
+
+======================================================================
+MODEL: moe_muon
+======================================================================
+Loading checkpoints_168m/moe_muon/final_model.pt...
+Model loaded successfully
+
+--- Prompt 1 ---
+Input: The meaning of life is
+Output: The meaning of life is a crucial aspect of personal growth and development within the broader context of contemporary society. This course unit will delve into the concept of personal growth within the context of youth psychology, specifically focusing on the concept of family-based development within the context of child psychology
+
+--- Prompt 2 ---
+Input: In the year 2050, artificial intelligence will
+Output: In the year 2050, artificial intelligence will have led to significant advancements in computer science and engineering. One such breakthrough is the development of computer-powered computer-powered computer-powered computer-generated machines. This breakthrough has led to the creation of a super-powered computer-powered computer-powered
+
+--- Prompt 3 ---
+Input: Once upon a time, in a kingdom far away,
+Output: Once upon a time, in a kingdom far away, there was a world called "The Kingdom of Canada." This kingdom is known for their thriving cities, warm deserts, and friendly people. People living in Canada had to be very special, just like how you might live in a cozy neighborhood or a cozy
+
+======================================================================
+MODEL: moe_nested_winner
+======================================================================
+Loading checkpoints_168m/moe_nested_winner/final_model.pt...
+Model loaded successfully
+
+--- Prompt 1 ---
+Input: The meaning of life is
+Output: The meaning of life is to be a place of place called the world. This place is known as the country's natural identity, and it's a special place that has been around.
+
+One of the most important parts of the world of Europe is their culture. The
+
+--- Prompt 2 ---
+Input: In the year 2050, artificial intelligence will
+Output: In the year 2050, artificial intelligence will be used to analyze energy levels and predict the impact of these changes on the future.
+
+### The Role of Artificial Intelligence in Oncology
+
+Now that we have established established systems and processes, let's examine some key concepts in medicine.
+
+
+
+--- Prompt 3 ---
+Input: Once upon a time, in a kingdom far away,
+Output: Once upon a time, in a kingdom far away, there was a little creature named Sammy. It was filled with colorful flowers, colorful flowers, and flowers. He lived on a small village full of tall trees and flowers. One sunny day, while playing near a tree, Bob noticed that the big part
+
+======================================================================
+MODEL: titanmac_muon
+======================================================================
+Loading checkpoints_168m/titanmac_muon/final_model.pt...
+Model loaded successfully
+
+--- Prompt 1 ---
+Input: The meaning of life is
+Output: The meaning of life is a hyperperception and the use of the internet to improve the overall experience of the internet under the jurisdiction of the internet.
+
+To begin, there are two fundamental concepts that describe the meaning and the meaning of the internet, and it can significantly
+
+--- Prompt 2 ---
+Input: In the year 2050, artificial intelligence will
+Output: In the year 2050, artificial intelligence will be a widely adopted and returned to the United States, also known as the "Sue and the Uue" (In the United States).
+
+The Uue (Sue) and the Uue
+------------------------------------
+
+Let's start by
+
+--- Prompt 3 ---
+Input: Once upon a time, in a kingdom far away,
+Output: Once upon a time, in a kingdom far away, or do you have some free will.
+
+In the late 1800s and the mid-1800s and the mid-1800s and the mid-1800s, two of the
+
+======================================================================
+MODEL: titanmac_nested_winner
+======================================================================
+Loading checkpoints_168m/titanmac_nested_winner/checkpoint.pt...
+Model loaded successfully
+
+--- Prompt 1 ---
+Input: The meaning of life is
+Output: The meaning of life is similar.
+
+To understand this concept better, it's essential to understand it better. This scenario demonstrates how humans possess the power and capacity to shape our lives.
+
+One example of this concept is "Pivoror's Principle."
+
+
+--- Prompt 2 ---
+Input: In the year 2050, artificial intelligence will
+Output: In the year 2050, artificial intelligence will be used to identify patterns and trends in games and social structures.
+
+At the heart of the game of soccer, computers and smartphones play a critical role in modern sports and economics. They create games based on their strengths and weaknesses and strategies. These
+
+--- Prompt 3 ---
+Input: Once upon a time, in a kingdom far away,
+Output: Once upon a time, in a kingdom far away, there lived two best friends named Sam and Jamie. They loved exploring different worlds in different ways. One day, they found themselves sitting in a park and seeing people talking about how to talk about it.
+
+"Wow!" said Sam and Jamie,
+
+======================================================================
+SUMMARY COMPARISON
+======================================================================
+
+### Prompt 1: "The meaning of life is"
+--------------------------------------------------
+
+[moe_muon]
+The meaning of life is a crucial aspect of personal growth and development within the broader context of contemporary society. This course unit will delve into the concept of personal growth within th...
+
+[moe_nested_winner]
+The meaning of life is to be a place of place called the world. This place is known as the country's natural identity, and it's a special place that has been around.
+
+One of the most important parts o...
+
+[titanmac_muon]
+The meaning of life is a hyperperception and the use of the internet to improve the overall experience of the internet under the jurisdiction of the internet.
+
+To begin, there are two fundamental conc...
+
+[titanmac_nested_winner]
+The meaning of life is similar.
+
+To understand this concept better, it's essential to understand it better. This scenario demonstrates how humans possess the power and capacity to shape our lives.
+
+On...
+
+### Prompt 2: "In the year 2050, artificial intelligence will"
+--------------------------------------------------
+
+[moe_muon]
+In the year 2050, artificial intelligence will have led to significant advancements in computer science and engineering. One such breakthrough is the development of computer-powered computer-powered c...
+
+[moe_nested_winner]
+In the year 2050, artificial intelligence will be used to analyze energy levels and predict the impact of these changes on the future.
+
+### The Role of Artificial Intelligence in Oncology
+
+Now that we...
+
+[titanmac_muon]
+In the year 2050, artificial intelligence will be a widely adopted and returned to the United States, also known as the "Sue and the Uue" (In the United States).
+
+The Uue (Sue) and the Uue
+-----------...
+
+[titanmac_nested_winner]
+In the year 2050, artificial intelligence will be used to identify patterns and trends in games and social structures.
+
+At the heart of the game of soccer, computers and smartphones play a critical ro...
+
+### Prompt 3: "Once upon a time, in a kingdom far away,"
+--------------------------------------------------
+
+[moe_muon]
+Once upon a time, in a kingdom far away, there was a world called "The Kingdom of Canada." This kingdom is known for their thriving cities, warm deserts, and friendly people. People living in Canada h...
+
+[moe_nested_winner]
+Once upon a time, in a kingdom far away, there was a little creature named Sammy. It was filled with colorful flowers, colorful flowers, and flowers. He lived on a small village full of tall trees and...
+
+[titanmac_muon]
+Once upon a time, in a kingdom far away, or do you have some free will.
+
+In the late 1800s and the mid-1800s and the mid-1800s and the mid-1800s, two of the
+
+[titanmac_nested_winner]
+Once upon a time, in a kingdom far away, there lived two best friends named Sam and Jamie. They loved exploring different worlds in different ways. One day, they found themselves sitting in a park and...
+
+======================================================================
+INFERENCE COMPLETE
+======================================================================

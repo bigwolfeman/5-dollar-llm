@@ -125,6 +125,7 @@ def main():
     parser.add_argument("--max_steps", type=int, help="Override max_steps")
     parser.add_argument("--experiment_name", type=str, default="moe_training", help="Name of the experiment")
     parser.add_argument("--output_dir", type=str, default="./checkpoints", help="Output directory")
+    parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from (model state only)")
     args = parser.parse_args()
 
     # Get config by name

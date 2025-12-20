@@ -7,10 +7,11 @@ qualitative output between baseline and nested optimizer models.
 
 Usage:
     python run_inference_samples.py
-
-Expects checkpoints in checkpoints_extended/ from run_extended_test.py
+    python run_inference_samples.py --checkpoint-dir checkpoints_168m
+    python run_inference_samples.py --checkpoint-dir checkpoints_168m --models moe_muon,titanmac_muon
 """
 
+import argparse
 import os
 import sys
 import torch
@@ -69,13 +70,22 @@ def load_moe_model(checkpoint_path: Path, device: torch.device):
 def load_titanmac_model(checkpoint_path: Path, device: torch.device):
     """Load TitanMAC model from checkpoint."""
     from models.titanmac_wrapper import TitanMACWrapper
-    from configs.titanmac_config import TitanMACGPU24GBConfig
+    from configs.titanmac_config import TitanMACGPU24GBConfig, TitanMAC168MConfig
 
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
 
     # Get config from checkpoint or use default
     if 'config' in checkpoint:
-        config = checkpoint['config']
+        saved_config = checkpoint['config']
+        # Handle dict config (from nested optimizer training)
+        if isinstance(saved_config, dict):
+            # Use 168M config as base and override with saved values
+            config = TitanMAC168MConfig()
+            for key, value in saved_config.items():
+                if hasattr(config, key):
+                    setattr(config, key, value)
+        else:
+            config = saved_config
     else:
         config = TitanMACGPU24GBConfig()
         config.vocab_size = 49152
@@ -145,16 +155,42 @@ def find_checkpoints(checkpoint_dir: Path) -> dict:
         print(f"Checkpoint directory not found: {checkpoint_dir}")
         return checkpoints
 
+    # Possible checkpoint filenames in order of preference
+    checkpoint_names = ["final_model.pt", "model.pt", "checkpoint.pt"]
+
     for subdir in checkpoint_dir.iterdir():
         if subdir.is_dir():
-            model_path = subdir / "model.pt"
-            if model_path.exists():
-                checkpoints[subdir.name] = model_path
+            for ckpt_name in checkpoint_names:
+                model_path = subdir / ckpt_name
+                if model_path.exists():
+                    checkpoints[subdir.name] = model_path
+                    break  # Use first found
 
     return checkpoints
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Generate inference samples from checkpoints")
+    parser.add_argument(
+        "--checkpoint-dir",
+        type=str,
+        default="checkpoints_extended",
+        help="Directory containing checkpoint folders (default: checkpoints_extended)",
+    )
+    parser.add_argument(
+        "--models",
+        type=str,
+        default=None,
+        help="Comma-separated list of model folders to run (default: all)",
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Output file for results (default: print to stdout)",
+    )
+    args = parser.parse_args()
+
     print("=" * 70)
     print("INFERENCE SAMPLE GENERATOR")
     print("=" * 70)
@@ -166,13 +202,22 @@ def main():
     tokenizer = load_tokenizer()
 
     # Find checkpoints
-    checkpoint_dir = Path("checkpoints_extended")
+    checkpoint_dir = Path(args.checkpoint_dir)
     checkpoints = find_checkpoints(checkpoint_dir)
 
     if not checkpoints:
         print(f"\nNo checkpoints found in {checkpoint_dir}/")
-        print("Run run_extended_test.py first to generate checkpoints.")
+        print("Run training first to generate checkpoints.")
         sys.exit(1)
+
+    # Filter to specific models if requested
+    if args.models:
+        model_filter = [m.strip() for m in args.models.split(",")]
+        checkpoints = {k: v for k, v in checkpoints.items() if k in model_filter}
+        if not checkpoints:
+            print(f"\nNo matching checkpoints found for: {model_filter}")
+            print(f"Available: {list(find_checkpoints(checkpoint_dir).keys())}")
+            sys.exit(1)
 
     print(f"\nFound {len(checkpoints)} checkpoints:")
     for name in sorted(checkpoints.keys()):
@@ -237,13 +282,22 @@ def main():
         print("-" * 50)
 
         for name in sorted(results.keys()):
-            if results[name] and "output" in results[name][i]:
-                output = results[name][i]["output"]
-                # Truncate for display
-                if len(output) > 200:
-                    output = output[:200] + "..."
+            # Skip if model failed to load or doesn't have this prompt result
+            if not results[name] or len(results[name]) <= i:
+                continue
+            if "error" in results[name][0]:
                 print(f"\n[{name}]")
-                print(f"{output}")
+                print(f"FAILED: {results[name][0]['error']}")
+                continue
+            if "output" not in results[name][i]:
+                continue
+
+            output = results[name][i]["output"]
+            # Truncate for display
+            if len(output) > 200:
+                output = output[:200] + "..."
+            print(f"\n[{name}]")
+            print(f"{output}")
 
     print(f"\n{'='*70}")
     print("INFERENCE COMPLETE")

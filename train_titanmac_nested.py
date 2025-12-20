@@ -198,6 +198,7 @@ def train_titanmac_nested(
     output_dir: Optional[str] = None,
     experiment_name: Optional[str] = None,
     nested_config: Optional[Dict[str, Any]] = None,
+    resume_from: Optional[str] = None,
 ):
     """
     Train TitanMAC model with DeepNestedOptimizer.
@@ -209,6 +210,7 @@ def train_titanmac_nested(
         output_dir: Optional directory to save outputs
         experiment_name: Optional experiment name for logging
         nested_config: Optional config dict for nested optimizer
+        resume_from: Optional path to checkpoint to resume from
 
     Returns:
         model, final_metrics, metrics_history
@@ -279,6 +281,27 @@ def train_titanmac_nested(
     update_mode = "CMS (paper-aligned)" if use_cms else "AdamW (fallback)"
     print(f"  Update mode: {update_mode}")
 
+    # Resume from checkpoint if provided
+    start_step = 0
+    resumed_metrics_history = None
+    if resume_from and os.path.exists(resume_from):
+        print(f"\n[Resume] Loading checkpoint from {resume_from}")
+        checkpoint = torch.load(resume_from, map_location=device, weights_only=False)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        if 'optimizer_state_dict' in checkpoint:
+            try:
+                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                print(f"  Optimizer state restored")
+            except Exception as e:
+                print(f"  Warning: Could not restore optimizer state: {e}")
+        if 'step' in checkpoint:
+            start_step = checkpoint['step']
+            print(f"  Resuming from step {start_step}")
+        if 'metrics_history' in checkpoint:
+            resumed_metrics_history = checkpoint['metrics_history']
+            print(f"  Metrics history restored ({len(resumed_metrics_history.get('steps', []))} entries)")
+        print(f"  Model state restored")
+
     # Create loss function for meta-updates
     loss_fn = create_loss_fn(config)
 
@@ -316,12 +339,17 @@ def train_titanmac_nested(
         'memory_param_norm': [],  # Memory MLP weight norm
         'momentum_norm': [],  # Momentum buffer norm
     }
+    # Restore previous metrics history if resuming
+    if resumed_metrics_history:
+        for key in metrics_history:
+            if key in resumed_metrics_history:
+                metrics_history[key] = resumed_metrics_history[key].copy()
 
     # Training loop
     model.train()
-    step = 0
+    step = start_step
     desc = f"Training {experiment_name}" if experiment_name else "Training (TitanMAC+Nested)"
-    pbar = tqdm(total=config.max_steps, desc=desc)
+    pbar = tqdm(total=config.max_steps, desc=desc, initial=start_step)
 
     # Get a validation batch iterator for meta-updates
     val_iter = iter(val_loader)
@@ -559,6 +587,7 @@ def train_titanmac_nested(
             'nested_config': nested_config,
             'metrics': final_eval,
             'metrics_history': metrics_history,
+            'step': step,
         }, checkpoint_path)
         print(f"Saved checkpoint to {checkpoint_path}")
 
@@ -723,6 +752,7 @@ def main():
     parser.add_argument("--steps", "--max_steps", type=int, dest="max_steps", help="Override max_steps")
     parser.add_argument("--experiment_name", type=str, default="titanmac_nested", help="Name of the experiment")
     parser.add_argument("--output_dir", type=str, default="./checkpoints", help="Output directory")
+    parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from")
     args = parser.parse_args()
 
     # Get config by name
@@ -825,6 +855,7 @@ def main():
         output_dir=output_dir,
         experiment_name=experiment_name,
         nested_config=nested_config,
+        resume_from=args.resume,
     )
 
     elapsed = (time.time() - start) / 60
