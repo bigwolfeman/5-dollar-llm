@@ -261,7 +261,9 @@ def train_titanmac_nested(
         # - @torch._dynamo.disable creates a graph break, which fullgraph prohibits
         # We use dynamic=False to prevent recompilation on different input shapes
         model = torch.compile(model, mode='reduce-overhead', dynamic=False)
-        print("  torch.compile: enabled (dynamic=False, TF32=high)")
+        # Enable compiled autograd for better backward pass optimization
+        torch._dynamo.config.compiled_autograd = True
+        print("  torch.compile: enabled (dynamic=False, TF32=high, compiled_autograd=True)")
 
     # Enable gradient checkpointing if configured
     if getattr(config, 'use_gradient_checkpointing', False):
