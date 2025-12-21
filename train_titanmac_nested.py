@@ -807,6 +807,10 @@ def main():
                         help="Evaluate every N steps (default: from config, typically 50)")
     parser.add_argument("--eval_steps", type=int, default=None,
                         help="Number of eval batches per evaluation (default: from config, typically 100)")
+    parser.add_argument("--num_documents", type=int, default=None,
+                        help="Override number of documents to load (default: from config)")
+    parser.add_argument("--allow_repeat", action="store_true",
+                        help="Allow data to repeat if insufficient for max_steps (default: error)")
     parser.add_argument("--experiment_name", type=str, default="titanmac_nested", help="Name of the experiment")
     parser.add_argument("--output_dir", type=str, default="./checkpoints", help="Output directory")
     parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from")
@@ -825,6 +829,9 @@ def main():
 
     if args.eval_steps is not None:
         config.eval_steps = args.eval_steps
+
+    if args.num_documents is not None:
+        config.num_documents = args.num_documents
 
     if args.variant:
         config.titans_variant = args.variant
@@ -877,16 +884,24 @@ def main():
     # Check for sufficient data
     total_needed = config.max_steps * config.batch_size
     if len(train_ds) < total_needed:
+        epochs_needed = total_needed / len(train_ds)
         msg = (
             f"Insufficient training data! "
             f"Need {total_needed} sequences (max_steps={config.max_steps} * batch_size={config.batch_size}) "
             f"but only have {len(train_ds)} sequences. "
-            f"The model will overfit if data repeats. "
-            f"To fix: increase num_documents (currently {config.num_documents}) "
-            f"or reduce max_steps."
+            f"Data will repeat ~{epochs_needed:.1f}x during training."
         )
-        logger.error(msg)
-        raise ValueError(msg)
+        if args.allow_repeat:
+            logger.warning(msg + " Continuing with --allow_repeat.")
+            print(f"  WARNING: {msg}")
+            print(f"  Continuing because --allow_repeat is set.")
+        else:
+            msg += (
+                f" To fix: increase --num_documents (currently {config.num_documents}), "
+                f"reduce --steps, or use --allow_repeat to proceed anyway."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
 
     loader_args = dict(
         batch_size=config.batch_size,
