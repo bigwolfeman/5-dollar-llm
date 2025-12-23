@@ -80,7 +80,6 @@ def train_model(
     schedulers: Optional[List] = None,
     early_stopper: Optional[EarlyStopping] = None,
     output_dir: Optional[str] = None,
-    experiment_name: Optional[str] = None,
     plot_fn: Optional[Callable] = None,
     extra_config: Optional[Dict[str, Any]] = None,
     log_every: int = 100,
@@ -97,7 +96,6 @@ def train_model(
         schedulers: Optional list of learning rate schedulers
         early_stopper: Optional early stopping handler
         output_dir: Optional directory to save outputs
-        experiment_name: Optional experiment name for logging
         plot_fn: Optional custom plotting function(metrics_history, output_path)
         extra_config: Optional dict of extra config to save with metrics
     
@@ -130,7 +128,7 @@ def train_model(
     model.train()
     step = 0
     tokens_seen = 0
-    desc = f"Training {experiment_name}" if experiment_name else "Training"
+    desc = "Training"
     pbar = tqdm(total=config.train_tokens, desc=desc, unit="tokens")
     
     stopped_early = False
@@ -487,7 +485,6 @@ def train_minimal_llm(
     train_loader: DataLoader,
     val_loader: DataLoader,
     output_dir: Optional[str] = None,
-    experiment_name: Optional[str] = None,
     load_weights_path: Optional[str] = None,
 ):
     print(f"\n🚀 Training dense model")
@@ -612,7 +609,6 @@ def train_minimal_llm(
         schedulers=schedulers,
         early_stopper=None,
         output_dir=None,
-        experiment_name=experiment_name,
         plot_fn=None,
         extra_config=None,
         log_every=getattr(config, 'log_every', 100),

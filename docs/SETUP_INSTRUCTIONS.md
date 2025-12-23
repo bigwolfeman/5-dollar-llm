@@ -67,8 +67,7 @@ Our community competes to reach specific training loss milestones in the shortes
     ```bash
     python train_llm.py \
         --dataset_path processed_data/speedrun_40M \
-        --train_tokens 8000000 \
-        --experiment_name arch_test_v1
+        --train_tokens 8000000
     ```
 
 ### ⚡ The 20M Token Speedrun
@@ -79,8 +78,7 @@ Our community competes to reach specific training loss milestones in the shortes
     ```bash
     python train_llm.py \
         --dataset_path processed_data/speedrun_40M \
-        --train_tokens 20000000 \
-        --experiment_name deep_research_v1
+        --train_tokens 20000000
     ```
 
 ---
