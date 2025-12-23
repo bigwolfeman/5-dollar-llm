@@ -503,7 +503,7 @@ def train_minimal_llm(
     # ============================================
     set_seed(42)
     model = MinimalLLM(config)
-    model = model.to(device)
+    model = model.to(device=device, dtype=torch.bfloat16)
     
     # Load pretrained weights if specified
     if load_weights_path:
