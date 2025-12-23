@@ -53,5 +53,4 @@ Please read [SETUP_INTRUCTIONS](docs/SETUP_INSTRUCTIONS.md) for detailed guide.
 | # | Date | Train Loss | Val Loss | Time | Tokens Used | User | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | 1 | 2025-12-23 | 3.4747 | 3.3580 | 2h 51m 31s | 1,000,007,680 | [Vuk Rosić](https://x.com/VukRosic99), [ToheedAkhtar01](https://x.com/ToheedAkhtar01), [GitHub #67](https://github.com/Open-Superintelligence-Lab/5-dollar-llm/pull/67/), [GitHub #56](https://github.com/Open-Superintelligence-Lab/5-dollar-llm/pull/56) | n_layers 32→22, optimized LRs (Muon 0.024, AdamW 0.006), Squared ReLU, Fused AdamW, Polar Muon|
-
-This result is confirmed again: 2h 50m 55s, train loss: 3.4917, val loss: 3.3583
+| 2 | 2025-12-23 | 3.4946 | 3.3583 | 2h 42m 49s | 1,000,007,680 | [bigwolfeman](https://github.com/bigwolfeman) | Cast model into bf16 - model = model.to(device, dtype=torch.bfloat16), Note: For 1B tokens higher precision in optimizer might be better. |
